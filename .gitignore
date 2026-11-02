@@ -1,0 +1,4 @@
+.playwright-mcp/
+vendor/
+models/
+__pycache__/
