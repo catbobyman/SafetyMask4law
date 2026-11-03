@@ -155,6 +155,8 @@ body.dropping .tile.add .slot{box-shadow:inset 0 0 0 2px var(--ink);color:var(--
 .cta{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 24px;border-radius:24px;background:var(--pill);color:var(--pill-fg);font-size:15px;font-weight:500;transition:transform .2s var(--spring)}
 .cta:active{transform:scale(.97)}
 .cta.hot{background:var(--zhu);color:var(--on-zhu)}
+.cta.soft{background:var(--fill2);color:var(--ink)}
+.ctas{display:flex;flex-wrap:wrap;justify-content:center;gap:12px}
 
 /* 缩略纸：真实比例的标注位置 */
 .mini{--u:1;display:flex;flex-direction:column;gap:calc(var(--u)*2.3px);width:calc(var(--u)*52px);height:calc(var(--u)*70px);overflow:hidden;padding:calc(var(--u)*7px) calc(var(--u)*6px);border-radius:calc(var(--u)*4px);background:var(--sheet);box-shadow:var(--shadow-1)}
@@ -490,7 +492,7 @@ const workspaceFiles=()=>[
   {key:'f4',name:'扫描版授权书.pdf',format:'PDF',unsupported:'扫描件暂不支持'},
   {key:'f5',name:'报价明细.xlsx',format:'XLSX',unsupported:'格式暂不支持'}
 ];
-const initialState=(host='Codex')=>({tool:'pointer',penType:'auto',boxMode:'mask',toolsOpen:true,view:'chat',phase:'idle',page:'import',host,scenario:'full',draft:HOSTS[host].entry+' '+defaultTask,task:'',note:'',chat:[],dir:workspaceFiles(),documents:[],entities:seedEntities(),current:0,selected:null,sel:null,selType:'',pick:'',preview:'original',inspector:false,menu:false,sheet:'',peek:null,search:'',hit:-1,setupDone:true,setupProgress:null,opened:false,restoreInput:'',restoreFix:{},miss:null,restored:false,nextId:1,nextManual:1,reused:false});
+const initialState=(host='Codex')=>({tool:'pointer',penType:'auto',boxMode:'mask',toolsOpen:true,view:'chat',phase:'idle',page:'import',host,scenario:'full',draft:HOSTS[host].entry+' '+defaultTask,task:'',chat:[],dir:workspaceFiles(),documents:[],entities:seedEntities(),current:0,selected:null,sel:null,selType:'',pick:'',preview:'original',inspector:false,menu:false,sheet:'',peek:null,search:'',hit:-1,setupDone:true,setupProgress:null,opened:false,restoreInput:'',restoreFix:{},miss:null,restored:false,nextId:1,nextManual:1,reused:false});
 
 const paraText=(d,c)=>COMPILED[d.template].sections[c.s].paragraphs[c.p];
 const scanned=s=>s.documents.filter(d=>d.scan>=100);
@@ -626,7 +628,6 @@ function reduce(state,a){
   const s=structuredClone(state),d=s.documents[s.current],c=d?.candidates.find(x=>x.id===s.selected);
   switch(a.type){
     case 'draft':s.draft=a.value;return s;
-    case 'note':s.note=a.value;return s;
     case 'host':if(s.phase==='idle')s.draft=s.draft.replace(/^[/$]mask/,HOSTS[a.value].entry);s.host=a.value;return s;
     case 'win':s.view=a.value;s.menu=false;return s;
     case 'open':if(s.phase==='working'&&s.view==='chat'&&!s.opened){s.opened=true;s.view='bench';}return s;
@@ -938,7 +939,7 @@ function tile(f){
 }
 function selectPage(){
   const fresh=state.dir.filter(f=>f.checked&&!f.docId).length;
-  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${esc(state.task)}</h1>${state.reused?`<p class="quiet">${icon('check',14)}沿用本项目代号</p>`:''}<div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-k="add" data-a="pick-file" aria-label="添加文件" title="添加文件，或把文件拖到这里"><span class="slot">${icon('plus',24)}</span></button></div></main>`+dock('import',`<label class="field">${icon('note',18)}<input id="note" aria-label="补充说明" placeholder="补充说明，可写真名" value="${esc(state.note)}"></label>${go({cls:'next',a:'start-scan',label:fresh?`开始识别 ${fresh} 份`:'先选择材料',inner:icon('right',20),disabled:!fresh,key:'start'})}`);
+  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${esc(state.task)}</h1>${state.reused?`<p class="quiet">${icon('check',14)}沿用本项目代号</p>`:''}<div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-k="add" data-a="pick-file" aria-label="添加文件" title="添加文件，或把文件拖到这里"><span class="slot">${icon('plus',24)}</span></button></div>${fresh?`<button class="cta hot" data-a="start-scan">${icon('right',18)}开始识别 ${fresh} 份</button>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}</main>`;
 }
 function markHtml(c,here,cur){
   const ai=state.preview==='masked',on=state.selected===c.id;
@@ -1121,10 +1122,10 @@ function noticeHtml(){
   return notices.length?`<div class="warn">${icon('info',16)}<span>${notices.map(d=>`${esc(d.name)}：${esc(d.notice)}`).join('<br>')}，按部分处理记录</span></div>`:'';
 }
 function handoffSheet(){
-  const byType={},c=counts(state),docs=state.documents.filter(d=>!d.handed),note=state.note.trim(),h=esc(state.host);
+  const byType={},c=counts(state),docs=state.documents.filter(d=>!d.handed),h=esc(state.host);
   maskedCands(state).forEach(x=>{const t=state.entities[x.c.entity].type;byType[t]=(byType[t]||0)+1;});
-  const peek=state.peek==='note'?maskText(state,note):state.peek!=null?docMarkdown(state,docs[state.peek]):'';
-  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="确认交接"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><div class="papers" style="padding-top:6px">${docs.map((d,i)=>`<button data-a="peek" data-v="${i}" aria-pressed="${state.peek===i}" title="预览材料 ${i+1}">${mini({template:d.template,doc:d},1.15)}材料 ${i+1}</button>`).join('')}</div>${peek?`<pre tabindex="0">${esc(peek)}</pre>`:''}<div class="tally">${Object.entries(byType).map(([t,n])=>`<span class="tag">${t}<b>${n}</b></span>`).join('')}<span class="tag k">保留<b>${c.kept}</b></span><span class="tag k">补录<b>${c.manual}</b></span></div>${noticeHtml()}<div class="split"><div><span>${icon('up',15)}发给 ${h}</span><small>${docs.length} 份脱敏稿${note?'、脱敏后的补充说明':''}</small></div><div><span>${icon('lock',15)}留在本机</span><small>原件、文件名、代号表</small></div></div><button class="cta hot" id="confirm" data-a="confirm-handoff">${icon('up',18)}交给 ${h}</button></section>`;
+  const peek=state.peek!=null?docMarkdown(state,docs[state.peek]):'';
+  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="确认交接"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><div class="papers" style="padding-top:6px">${docs.map((d,i)=>`<button data-a="peek" data-v="${i}" aria-pressed="${state.peek===i}" title="预览材料 ${i+1}">${mini({template:d.template,doc:d},1.15)}材料 ${i+1}</button>`).join('')}</div>${peek?`<pre tabindex="0">${esc(peek)}</pre>`:''}<div class="tally">${Object.entries(byType).map(([t,n])=>`<span class="tag">${t}<b>${n}</b></span>`).join('')}<span class="tag k">保留<b>${c.kept}</b></span><span class="tag k">补录<b>${c.manual}</b></span></div>${noticeHtml()}<div class="split"><div><span>${icon('up',15)}发给 ${h}</span><small>${docs.length} 份脱敏稿</small></div><div><span>${icon('lock',15)}留在本机</span><small>原件、文件名、代号表</small></div></div><button class="cta hot" id="confirm" data-a="confirm-handoff">${icon('up',18)}交给 ${h}</button></section>`;
 }
 function exportSheet(){
   return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="导出原格式"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><div class="rows" style="padding-top:22px">${state.documents.map(d=>`<div><span>${esc(d.name.replace(/\.(\w+)$/,'.脱敏.$1'))}</span><small>${esc(d.format)}</small></div>`).join('')}</div>${noticeHtml()}<button class="cta" id="confirm" data-a="confirm-export">${icon('down',18)}导出到 mask-export/</button></section>`;
@@ -1296,7 +1297,6 @@ document.addEventListener('click',e=>{
 function onInput(e){
   const id=e.target.id,v=e.target.value;
   if(id==='draft')dispatch({type:'draft',value:v});
-  if(id==='note')dispatch({type:'note',value:v});
   if(id==='search')dispatch({type:'search',value:v});
   if(id==='paste'&&v.trim())dispatch({type:'restoreInput',value:v});
 }

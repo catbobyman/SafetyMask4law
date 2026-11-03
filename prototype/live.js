@@ -96,8 +96,10 @@ tile=function(f){
   return `<button class="tile ${f.checked?'on':''}" data-k="${f.key}" data-a="${doc?'open-existing':'toggle'}" data-v="${f.key}" title="${esc(f.name)}" aria-pressed="${!!f.checked}"><span class="slot">${mini(doc?{template:doc.template,doc}:null,2.08)}<span class="tick">${icon('check',13)}</span></span><span class="nm">${esc(f.name)}</span><span class="sub">${doc?doc.status==='failed'?'识别失败':doc.status==='review'?'继续核对':'待识别':f.local?'工作目录':'待导入'}</span></button>`;
 };
 selectPage=function(){
-  const fresh=state.dir.filter(f=>f.checked&&!f.docId).length+Number(!!state.note.trim()),queued=state.documents.filter(d=>d.status!=='review').length;
-  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">选择需要脱敏的材料</h1><p class="quiet">TXT · Word（.docx）· 原生 PDF<br>原文与映射只在本机处理</p><div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${state.documents.length?'<button class="cta" data-a="review-open">继续核对已有材料</button>':''}</main>`+dock('import',`<label class="field">${icon('note',18)}<input id="note" aria-label="补充说明" placeholder="补充说明，可写真名，会一起识别" value="${esc(state.note)}"></label>${go({cls:'next',a:'start-scan',label:`开始识别 ${fresh+queued} 份`,inner:icon('right',20),disabled:liveBusy||!(fresh+queued+Number(!!state.note.trim())),key:'start'})}`);
+  const n=state.dir.filter(f=>f.checked&&!f.docId).length+state.documents.filter(d=>d.status!=='review').length;
+  const start=n?`<button class="cta hot" data-a="start-scan" ${liveBusy?'disabled':''}>${icon('right',18)}开始识别 ${n} 份</button>`:'';
+  const resume=state.documents.length?`<button class="cta ${n?'soft':''}" data-a="review-open">继续核对已有材料</button>`:'';
+  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">选择需要脱敏的材料</h1><p class="quiet">TXT · Word（.docx）· 原生 PDF<br>原文与映射只在本机处理</p><div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${start||resume?`<div class="ctas">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}</main>`;
 };
 reviewGo=function(){
   const c=counts(state),bad=state.documents.filter(d=>d.status==='failed'),clash=conflicts().length;
@@ -180,7 +182,6 @@ async function scanAll(){
       hydrate(result);
     }catch(error){errors.push(`${file.name}：${error.message}`);file.checked=false;}
   }
-  if(state.note.trim()){hydrate(await api('note',{text:state.note}));state.note='';}
   const queued=state.documents.filter(d=>d.status!=='review').map(d=>d.id);
   if(state.documents.length){state.page='review';state.view='bench';}
   for(const id of queued){

@@ -123,15 +123,6 @@ def create_app(project: Project, launch_token: str):
             project.add(file.filename or '', file.file.read())
             return project.public()
 
-    @app.post('/api/note')
-    def note(body: dict):
-        text = body.get('text', '')
-        if not text.strip():
-            raise ValueError('补充说明为空')
-        with lock:
-            project.add('补充说明.txt', text.encode('utf-8'))
-            return project.public()
-
     @app.post('/api/scan/{identity}')
     def scan(identity: str):
         with lock:
