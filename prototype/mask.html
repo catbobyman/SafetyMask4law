@@ -182,14 +182,14 @@ body.dragging .h{pointer-events:none}
 .callout[data-side=bottom]::after{top:-5px}
 .why{padding:3px 8px 5px;color:var(--ink2)}
 .why.hot{color:var(--zhu)}
-.co-row{position:relative;z-index:1;display:flex;align-items:center;gap:4px}
+.co-row{position:relative;z-index:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 .chip{display:inline-flex;align-items:center;gap:2px;height:36px;padding:0 6px 0 10px;border-radius:12px;color:var(--ink2);white-space:nowrap;transition:background-color .15s}
 .chip:hover:not(:disabled){background:var(--fill)}
 .chip:disabled{opacity:.4}
 .chip.plain{padding:0 10px}
 .chip.hot{background:var(--wash);color:var(--zhu)}
 .pick{display:flex;overflow:hidden;padding:2px;border-radius:13px;background:var(--fill)}
-.pick button{display:grid;place-items:center;width:44px;height:36px;border-radius:11px;color:var(--ink);transition:background-color .2s,color .2s}
+.pick button{display:flex;align-items:center;justify-content:center;gap:5px;height:36px;padding:0 12px 0 10px;border-radius:11px;white-space:nowrap;color:var(--ink);transition:background-color .2s,color .2s}
 .pick button:hover:not(.on):not(.off){background:var(--fill)}
 .pick button.on{background:var(--pill);color:var(--pill-fg)}
 .pick button.keep.on{background:var(--sheet);box-shadow:0 0 0 .5px var(--line);color:var(--ink)}
@@ -214,6 +214,28 @@ body.dragging .h{pointer-events:none}
 .badge.dot{top:-3px;right:-3px;min-width:9px;width:9px;height:9px;padding:0}
 .thumb .dial{position:absolute;left:15px;top:24px}
 .rail .icon{width:40px;height:40px;color:var(--ink3)}
+
+/* 待处理看板：主按钮背后的清单，一行一处 */
+.board{position:absolute;z-index:13;left:104px;top:64px;display:flex;flex-direction:column;width:236px;max-height:calc(100% - 176px);border-radius:20px;background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(1.8);backdrop-filter:blur(30px) saturate(1.8);box-shadow:0 0 0 .5px var(--line),var(--shadow-1);transform-origin:0 0;animation:pop .3s var(--spring)}
+.board:not(.open){width:auto}
+.board-head{display:flex;flex:none;align-items:center;gap:8px;padding:10px 12px 10px 16px;border-radius:20px;color:var(--ink2);font-size:13px}
+.board-head b{margin-left:auto;color:var(--zhu);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.board-head svg{color:var(--ink3);transition:transform .3s var(--spring)}
+.board:not(.open) .board-head svg{transform:rotate(-90deg)}
+.legend{display:flex;flex:none;gap:14px;padding:0 16px 10px;color:var(--ink3);font-size:12px;font-variant-numeric:tabular-nums}
+.legend .m{margin:0 5px 0 0;padding:.05em .45em;cursor:default}
+.board-list{overflow-y:auto;padding:4px 6px 8px;border-top:.5px solid var(--line);scrollbar-width:thin;scrollbar-color:var(--fill2) transparent}
+.board-doc{overflow:hidden;padding:10px 10px 2px;color:var(--ink3);font-size:12px;white-space:nowrap;text-overflow:ellipsis}
+.brow{display:flex;flex-direction:column;gap:1px;width:100%;padding:6px 10px;border-radius:12px;text-align:left;transition:background-color .15s}
+.brow:hover{background:var(--fill)}
+.brow.on{background:var(--fill2)}
+.brow-main{display:flex;align-items:center;gap:8px;width:100%;min-width:0}
+.brow-main .m{display:inline-block;max-width:150px;margin:0;overflow:hidden;font:15px/1.6 var(--doc);white-space:nowrap;text-overflow:ellipsis}
+.brow-type{flex:none;margin-left:auto;color:var(--ink3);font-size:12px}
+.brow-hint,.brow-state{max-width:100%;overflow:hidden;color:var(--ink2);font-size:12px;white-space:nowrap;text-overflow:ellipsis}
+.brow-hint.hot,.brow-state.hot{color:var(--zhu)}
+.brow-state{font-size:13px}
+@media (min-width:1061px){.board.open~.canvas{padding-left:max(24px,calc(1456px - 100vw))}.canvas:has(~.inspector.open){padding-right:352px}.board.open~.canvas:has(~.inspector.open){padding-left:352px}}
 
 /* 实体与代号 */
 .inspector{position:absolute;z-index:18;top:56px;right:12px;bottom:12px;width:328px;overflow-y:auto;padding:12px 8px 16px;border-radius:22px;background:var(--glass2);-webkit-backdrop-filter:blur(30px) saturate(1.8);backdrop-filter:blur(30px) saturate(1.8);box-shadow:0 0 0 .5px var(--line),var(--shadow-2);transform:translateX(calc(100% + 24px));visibility:hidden;transition:transform .5s var(--spring),visibility .5s}
@@ -310,6 +332,8 @@ body.flying .page{animation:fly .52s cubic-bezier(.5,0,.75,0) forwards}
   .rail .mini{--u:.6!important}
   .thumb .dial{left:4px;top:10px}
   .inspector{left:8px;right:8px;top:54px;bottom:8px;width:auto}
+  .board{top:124px;left:10px;max-height:calc(100% - 220px)}
+  .board.open{width:min(280px,calc(100% - 20px))}
   .ask{font-size:21px}
   .tiles{gap:18px 14px}
   .composer-box{padding:6px 12px 14px}
@@ -396,11 +420,14 @@ const pendingOf=d=>d.scan>=100?d.candidates.filter(c=>c.decision==='pending').le
 const counts=s=>{const all=allCands(s);return {pending:all.filter(x=>x.c.decision==='pending').length,masked:all.filter(x=>x.c.decision==='mask').length,kept:all.filter(x=>x.c.decision==='keep').length,manual:all.filter(x=>x.c.manual).length,scanning:s.documents.filter(d=>d.scan<100).length};};
 const canExport=s=>s.documents.length>0&&counts(s).scanning===0&&counts(s).pending===0;
 const canRelease=s=>canExport(s)&&s.documents.some(d=>!d.handed);
+// HaS 官方代号形状 <类型[编号].分类.属性>；同一主体的其他写法用 名称2、名称3。
+const TAG_RE=/<[^<>\[\]]+\[\d+\]\.[^<>\[\].]+\.[^<>\[\].]+>/g;
+const tagFor=(e,i=0)=>`<${e.type}[${e.no}].${e.type}.名称${i>0?i+1:''}>`;
 function token(s,c){
   const e=s.entities[c.entity];
   const variants=[...new Set(maskedCands(s).filter(x=>x.c.entity===c.entity).map(x=>x.c.original))];
   const i=variants.indexOf(c.original);
-  return `⟦${e.type}${e.no}${i>0?'·'+(i+1):''}⟧`;
+  return tagFor(e,i);
 }
 const mapping=s=>Object.fromEntries(maskedCands(s).map(({c})=>[token(s,c),c.original]));
 const realNames=s=>[...new Set(maskedCands(s).map(x=>x.c.original))].sort((a,b)=>b.length-a.length);
@@ -421,23 +448,29 @@ function docMarkdown(s,d){
 function nameFor(s,entity,fallback){const hit=maskedCands(s).find(x=>x.c.entity===entity);return hit?token(s,hit.c):fallback;}
 function reportData(s){
   const a=nameFor(s,'company1','甲方'),b=nameFor(s,'company2','乙方'),p=nameFor(s,'person1','甲方代表');
-  return {rows:s.documents.filter(d=>d.handed).map((d,i)=>[`材料 ${i+1}`,templates[d.template].title,...TERMS[d.template]]),notes:[`材料 3 把尾款期限写成 45 日，与材料 2 的 60 日不一致，需 ${a} 与 ${b} 书面确认适用顺序。`,`材料 3 的违约金改为每日万分之五且未列上限，建议由 ${p} 在验收前核对。`,'另需确认 ⟦公司9⟧ 的授权文件。']};
+  return {rows:s.documents.filter(d=>d.handed).map((d,i)=>[`材料 ${i+1}`,templates[d.template].title,...TERMS[d.template]]),notes:[`材料 3 把尾款期限写成 45 日，与材料 2 的 60 日不一致，需 ${a} 与 ${b} 书面确认适用顺序。`,`材料 3 的违约金改为每日万分之五且未列上限，建议由 ${p} 在验收前核对。`,'另需确认 <公司[9].公司.名称> 的授权文件。']};
 }
 function reportMarkdown(s){
   const r=reportData(s);
   return ['# 付款与违约责任风险清单','','| 材料 | 文件 | 尾款期限 | 逾期违约金 |','| --- | --- | --- | --- |',...r.rows.map(x=>`| ${x.join(' | ')} |`),'',...r.notes.map((n,i)=>`${i+1}. ${n}`)].join('\n');
 }
 function restoreInfo(s){
-  const map=mapping(s),all=s.restoreInput.match(/⟦[^⟧]*⟧/g)||[],tokens=[...new Set(all)],fix=s.restoreFix;
+  const map=mapping(s),all=s.restoreInput.match(TAG_RE)||[],tokens=[...new Set(all)],fix=s.restoreFix;
   return {map,tokens,missing:tokens.filter(t=>!(t in map)&&!fix[t]),kept:tokens.filter(t=>fix[t]==='keep'),replaced:all.filter(t=>t in map||(fix[t]&&fix[t]!=='keep')).length};
 }
 function makeDocument(id,f){
   const t=templates[f.template];
   return {id,name:f.name,format:f.format,template:f.template,custom:!!f.custom,notice:t.notice||'',scan:0,handed:false,candidates:Object.entries(t.candidates).map(([key,[original,type,entity,decision,reason,bad,suggest]])=>({id:id+'-'+key,...COMPILED[f.template].spans[key],original,type,entity,decision,reason,bad:!!bad,suggest,manual:false}))};
 }
-const overlaps=(d,si,pi,start,end,except)=>d.candidates.some(c=>c.id!==except&&c.s===si&&c.p===pi&&start<c.end&&end>c.start);
+const overlaps=(d,si,pi,start,end,except)=>d.candidates.some(c=>c.id!==except&&c.decision!=='keep'&&c.s===si&&c.p===pi&&start<c.end&&end>c.start);
 function newEntity(s,type){const no=Math.max(0,...Object.values(s.entities).filter(e=>e.type===type).map(e=>e.no))+1;const id='e'+type+no;s.entities[id]={id,type,no};return id;}
-function entityFor(s,original,type){const same=allCands(s).find(x=>x.c.original===original&&s.entities[x.c.entity].type===type);return same?same.c.entity:newEntity(s,type);}
+function entityFor(s,original,type){
+  const same=allCands(s).find(x=>x.c.original===original&&s.entities[x.c.entity].type===type);
+  if(same)return same.c.entity;
+  // A company name written without its city prefix is the same subject as the masked full name.
+  const outer=type==='公司'&&allCands(s).find(x=>x.c.decision==='mask'&&x.c.original.includes(original)&&s.entities[x.c.entity].type===type);
+  return outer?outer.c.entity:newEntity(s,type);
+}
 function guessType(s,value){
   const same=allCands(s).find(x=>x.c.original===value);
   if(same)return s.entities[same.c.entity].type;
@@ -518,6 +551,7 @@ function reduce(state,a){
     case 'jump':s.current=a.index;s.selected=a.id;s.preview='original';s.sel=null;s.pick='';return s;
     case 'preview':s.preview=a.value;s.selected=null;s.sel=null;s.pick='';s.miss=null;return s;
     case 'inspector':s.inspector=!s.inspector;return s;
+    case 'board':s.boardOpen=a.value;return s;
     case 'menu':s.menu=!s.menu;return s;
     case 'pick':s.pick=s.pick===a.value?'':a.value;return s;
     case 'search':s.search=a.value;s.hit=-1;if(s.search)s.preview='original';return s;
@@ -691,7 +725,7 @@ function go({cls,a='',label,inner,pct=0,disabled=false,key}){
 function reviewGo(){
   const c=counts(state),total=c.pending+c.masked+c.kept,pct=total?(c.masked+c.kept)/total:0;
   if(c.scanning)return go({cls:'busy',a:c.pending?'next':'',label:'本地识别中',inner:c.pending||'',pct:.28,key:'busy'+c.pending});
-  if(c.pending)return go({cls:'todo',a:'next',label:`下一处待确认，还剩 ${c.pending} 处`,inner:c.pending,pct,key:'n'+c.pending});
+  if(c.pending)return go({cls:'todo',a:'next',label:`下一处待确认，还剩 ${c.pending} 处（J）`,inner:c.pending,pct,key:'n'+c.pending});
   if(canRelease(state))return go({cls:'send',a:'release',label:`交给 ${state.host}`,inner:icon('up',20),key:'send'});
   return go({cls:'quiet',a:'to-done',label:'已交接',inner:icon('check',20),key:'done'});
 }
@@ -769,7 +803,7 @@ function calloutFor(d){
   if(state.sel&&!ai){
     const v=state.sel;
     if(v.conflict)return `<div class="callout" data-k="co" data-float><div class="why hot" style="padding-bottom:3px">与已有标注重叠</div></div>`;
-    return `<div class="callout" data-k="co" data-float role="dialog" aria-label="补录"><div class="co-row"><span class="sel-val">${esc(v.value)}</span><button class="chip" data-a="pick" data-v="sel-type">${esc(state.selType)}${icon('chev',14)}</button><span class="grow"></span><div class="pick"><button class="on" data-a="add-sel" title="遮住" aria-label="遮住">${icon('eyeOff',18)}</button></div></div>${state.pick==='sel-type'?`<div class="choices">${CATEGORIES.map(x=>`<button class="${x===state.selType?'on':''}" data-a="sel-type" data-v="${x}">${x}</button>`).join('')}</div>`:''}</div>`;
+    return `<div class="callout" data-k="co" data-float role="dialog" aria-label="补录"><div class="co-row"><span class="sel-val">${esc(v.value)}</span><button class="chip" data-a="pick" data-v="sel-type">${esc(state.selType)}${icon('chev',14)}</button><span class="grow"></span><div class="pick"><button class="on" data-a="add-sel">${icon('eyeOff',18)}遮住</button></div></div>${state.pick==='sel-type'?`<div class="choices">${CATEGORIES.map(x=>`<button class="${x===state.selType?'on':''}" data-a="sel-type" data-v="${x}">${x}</button>`).join('')}</div>`:''}</div>`;
   }
   const c=d.candidates.find(x=>x.id===state.selected);
   if(!c||ai||d.scan<100)return '';
@@ -778,8 +812,8 @@ function calloutFor(d){
   const peers=Object.values(state.entities).filter(x=>x.type===type&&(x.id===c.entity||allCands(state).some(y=>y.c.entity===x.id&&y.c.decision==='mask')));
   const peerName=x=>maskedCands(state).find(y=>y.c.entity===x.id)?.c.original||c.original;
   const suggest=c.suggest&&c.decision==='pending'&&c.entity!==c.suggest?state.entities[c.suggest]:null;
-  const code=c.decision==='mask'?token(state,c):`⟦${e.type}${e.no}⟧`;
-  return `<div class="callout" data-k="co" data-float role="dialog" aria-label="${esc(c.original)}"><p class="why ${c.decision==='pending'?'hot':''}">${esc(c.reason)}</p><div class="co-row"><button class="chip" data-a="pick" data-v="type" title="类别" aria-expanded="${state.pick==='type'}">${esc(type)}${icon('chev',14)}</button>${suggest?`<button class="chip plain hot" data-a="merge" title="并入这个主体并遮住">= ${esc(peerName(suggest))}</button>`:c.decision==='keep'?'':`<button class="chip" data-a="pick" data-v="entity" title="代号" aria-expanded="${state.pick==='entity'}">${esc(code)}${icon('chev',14)}</button>`}<span class="grow"></span>${same.length>1?`<button class="chip plain" data-a="sync" title="同步到全部 ${same.length} 处" aria-label="同步到全部 ${same.length} 处" ${c.decision==='pending'?'disabled':''}>${icon('stack',15)}&nbsp;${same.length}</button>`:''}<div class="pick" role="group" aria-label="决定"><button class="keep ${c.decision==='keep'?'on':''}" data-a="keep" title="保留" aria-label="保留">${icon('eye',18)}</button><button class="${c.decision==='mask'?'on':''} ${c.bad?'off':''}" data-a="mask" title="${c.bad?'先调整范围':'遮住'}" aria-label="遮住">${icon('eyeOff',18)}</button></div></div>${state.pick==='type'?`<div class="choices">${CATEGORIES.map(x=>`<button class="${x===type?'on':''}" data-a="type" data-v="${x}">${x}</button>`).join('')}</div>`:''}${state.pick==='entity'?`<div class="choices list">${peers.map(x=>`<button class="${x.id===c.entity?'on':''}" data-a="entity" data-v="${x.id}">${esc(peerName(x))}</button>`).join('')}<button data-a="entity" data-v="new">${icon('plus',14)} 新主体</button></div>`:''}</div>`;
+  const code=c.decision==='mask'?token(state,c):tagFor(e);
+  return `<div class="callout" data-k="co" data-float role="dialog" aria-label="${esc(c.original)}">${c.reason?`<p class="why ${c.decision==='pending'?'hot':''}">${esc(c.reason)}</p>`:''}<div class="co-row"><button class="chip" data-a="pick" data-v="type" title="类别" aria-expanded="${state.pick==='type'}">${esc(type)}${icon('chev',14)}</button>${suggest?`<button class="chip plain hot" data-a="merge" title="并入这个主体并遮住">= ${esc(allCands(state).find(x=>x.c.entity===suggest.id)?.c.original||peerName(suggest))}</button>`:c.decision==='keep'?'':`<button class="chip" data-a="pick" data-v="entity" title="代号" aria-expanded="${state.pick==='entity'}">${esc(code)}${icon('chev',14)}</button>`}<span class="grow"></span>${same.length>1?`<button class="chip plain ${c.decision!=='pending'&&samePending(c)?'hot':''}" data-a="sync" title="同步到全部 ${same.length} 处（S）" aria-keyshortcuts="S" aria-label="同步到全部 ${same.length} 处" ${c.decision==='pending'?'disabled':''}>${icon('stack',15)}&nbsp;${c.decision!=='pending'&&samePending(c)?'同步 ':''}${same.length}</button>`:''}<div class="pick" role="group" aria-label="决定"><button class="keep ${c.decision==='keep'?'on':''}" data-a="keep" title="保留（K）" aria-keyshortcuts="K">${icon('eye',18)}保留</button><button class="${c.decision==='mask'?'on':''} ${c.bad?'off':''}" data-a="mask" title="${c.bad?'先调整范围':'遮住（M）'}" aria-keyshortcuts="M">${icon('eyeOff',18)}遮住</button></div></div>${state.pick==='type'?`<div class="choices">${CATEGORIES.map(x=>`<button class="${x===type?'on':''}" data-a="type" data-v="${x}">${x}</button>`).join('')}</div>`:''}${state.pick==='entity'?`<div class="choices list">${peers.map(x=>`<button class="${x.id===c.entity?'on':''}" data-a="entity" data-v="${x.id}">${esc(peerName(x))}</button>`).join('')}<button data-a="entity" data-v="new">${icon('plus',14)} 新主体</button></div>`:''}</div>`;
 }
 function paper(d,hits){
   const t=templates[d.template],ai=state.preview==='masked';
@@ -796,22 +830,57 @@ function rail(hits){
   };
   return `<nav class="rail" data-k="rail" aria-label="材料">${state.documents.map(thumb).join('')}<button class="icon" data-a="add-more" title="添加材料" aria-label="添加材料">${icon('plus',20)}</button></nav>`;
 }
+function conflicts(){
+  const result=[];
+  state.documents.forEach(d=>{
+    const active=d.candidates.filter(c=>c.decision==='mask').sort((a,b)=>a.s-b.s||a.p-b.p||a.start-b.start);
+    active.forEach((c,i)=>{const p=active[i-1];if(p&&p.s===c.s&&p.p===c.p&&p.end>c.start)result.push({d,c,with:p});});
+  });return result;
+}
+// 待处理看板：把主按钮背后的清单摊开，一行一处，点行跳到原文。
+function todoHint(d,c){
+  const outer=d.candidates.find(o=>o!==c&&o.decision!=='keep'&&o.s===c.s&&o.p===c.p&&o.start<=c.start&&o.end>=c.end&&o.end-o.start>c.end-c.start);
+  if(outer)return {text:`在「${outer.original}」里`};
+  const full=c.suggest&&c.entity!==c.suggest&&allCands(state).find(x=>x.c.entity===c.suggest);
+  if(full)return {text:'= '+full.c.original,hot:true};
+  if(c.bad)return {text:'范围过宽，先拖手柄'};
+  return null;
+}
+function todoRow(x){
+  const ai=state.preview==='masked';
+  if(!x.c)return `<button class="brow" data-k="bd${x.d.id}" data-a="todo" data-i="${x.i}"><span class="brow-state ${x.hot?'hot':''}">${x.label}</span></button>`;
+  const c=x.c,hint=x.with?{text:`与「${x.with.original}」重叠`,hot:true}:todoHint(x.d,c);
+  return `<button class="brow ${x.i===state.current&&state.selected===c.id?'on':''}" data-k="b${c.id}${x.with?'x':''}" data-a="todo" data-i="${x.i}" data-v="${c.id}"><span class="brow-main"><span class="m ${x.with?'x':'q'}">${esc(ai&&x.with?token(state,c):c.original)}</span><span class="brow-type">${esc(state.entities[c.entity].type)}</span></span>${hint?`<span class="brow-hint ${hint.hot?'hot':''}">${esc(hint.text)}</span>`:''}</button>`;
+}
+function board(){
+  const clash=conflicts(),groups=state.documents.map((d,i)=>{
+    const rows=d.status==='failed'?[{d,i,label:'识别失败',hot:true}]:d.scan<100?[{d,i,label:d.status==='queued'?'待识别':'识别中'}]
+      :d.candidates.filter(c=>c.decision==='pending').sort((a,b)=>a.s-b.s||a.p-b.p||a.start-b.start).map(c=>({d,i,c}));
+    return {d,i,rows:rows.concat(clash.filter(x=>x.d===d).map(x=>({d,i,c:x.c,with:x.with})))};
+  }).filter(g=>g.rows.length);
+  if(!groups.length)return '';
+  const open=state.boardOpen??!matchMedia('(max-width:1060px)').matches,n=counts(state),total=groups.reduce((t,g)=>t+g.rows.length,0);
+  const list=groups.map(g=>(state.documents.length>1?`<div class="board-doc" data-k="bh${g.d.id}">${esc(state.preview==='masked'?'材料 '+(g.i+1):g.d.name)}</div>`:'')+g.rows.map(todoRow).join('')).join('');
+  return `<aside class="board ${open?'open':''}" data-k="board" aria-label="待处理"><button class="board-head" data-a="board" aria-expanded="${open}">待处理<b>${total}</b>${icon('chev',15)}</button>${open?`<div class="legend"><span><span class="m x">遮住</span>${n.masked}</span><span><span class="m k">保留</span>${n.kept}</span></div><div class="board-list">${list}</div>`:''}</aside>`;
+}
 function inspector(){
   const groups={},byType={};
   allCands(state).forEach(x=>{(groups[x.c.entity]??=[]).push(x);});
   Object.entries(groups).forEach(([id,list])=>{(byType[state.entities[id].type]??=[]).push([id,list]);});
+  const all=allCands(state),insp={size:Object.keys(groups).length,total:all.length,pending:all.filter(x=>x.c.decision==='pending').length};
+  const bulk=(id,v)=>`<button class="icon" data-a="bulk-entity" data-i="${id}" data-v="${v}" title="全部${v==='keep'?'保留':'遮住'}" aria-label="全部${v==='keep'?'保留':'遮住'}">${icon(v==='keep'?'eye':'eyeOff',17)}</button>`;
   const row=([id,list])=>{
     const values=[...new Set(list.map(x=>x.c.original))],tokens=[...new Set(list.filter(x=>x.c.decision==='mask').map(x=>token(state,x.c)))];
-    const pending=list.some(x=>x.c.decision==='pending'),first=list.find(x=>x.c.decision==='pending')||list[0],hidden=tokens.length>0;
-    return `<div class="ent" data-k="e${id}"><button class="ent-main" data-a="jump" data-i="${state.documents.indexOf(first.d)}" data-v="${first.c.id}"><span class="tok ${pending?'q':hidden?'':'k'}">${esc(tokens[0]||(pending?'待定':'保留'))}</span><span class="ent-name">${esc(values.join('、'))}</span><span class="ent-n">${list.length}</span></button><button class="icon" data-a="bulk-entity" data-i="${id}" data-v="${hidden?'keep':'mask'}" title="${hidden?'全部保留':'全部遮住'}" aria-label="${hidden?'全部保留':'全部遮住'}">${icon(hidden?'eyeOff':'eye',17)}</button></div>`;
+    const pending=list.some(x=>x.c.decision==='pending'),first=list.find(x=>x.c.decision==='pending')||list[0],hidden=tokens.length>0&&!pending;
+    return `<div class="ent" data-k="e${id}"><button class="ent-main" data-a="jump" data-i="${state.documents.indexOf(first.d)}" data-v="${first.c.id}"><span class="tok ${pending?'q':hidden?'':'k'}">${esc(tokens[0]||(pending?'待定':'保留'))}</span><span class="ent-name">${esc(values.join('、'))}</span><span class="ent-n">${list.length}</span></button>${pending||hidden?bulk(id,'keep'):''}${pending||!hidden?bulk(id,'mask'):''}</div>`;
   };
-  return `<aside class="inspector ${state.inspector?'open':''}" data-k="insp" aria-label="实体与代号" ${state.inspector?'':'inert'}><div class="insp-head">${icon('lock',13)}仅在本机</div>${CATEGORIES.filter(t=>byType[t]).map(t=>`<h3>${t}</h3>${byType[t].map(row).join('')}`).join('')}</aside>`;
+  return `<aside class="inspector ${state.inspector?'open':''}" data-k="insp" aria-label="实体与代号" ${state.inspector?'':'inert'}><div class="insp-head">${icon('lock',13)}仅在本机<span class="grow"></span>${insp.size} 个主体 · ${insp.pending?insp.pending+' 处待定':insp.total+' 处'}</div>${CATEGORIES.filter(t=>byType[t]).map(t=>`<h3>${t}</h3>${byType[t].map(row).join('')}`).join('')}</aside>`;
 }
 function reviewPage(){
   const d=state.documents[state.current],hits=searchHits(state),q=state.search.trim(),missed=hits.filter(h=>!h.marked).length,ai=state.preview==='masked';
   const find=q?`<div class="find"><b title="已标注">${hits.length-missed}</b>${missed?`<b class="hot" title="未标注">+${missed}</b>`:''}<button class="icon" data-a="hit" data-v="-1" aria-label="上一处" title="上一处" ${hits.length?'':'disabled'}>${icon('back',15)}</button><button class="icon" data-a="hit" data-v="1" aria-label="下一处" title="下一处" ${hits.length?'':'disabled'}>${icon('next',15)}</button>${missed?`<button class="icon hide" data-a="add-hits" title="遮住 ${missed} 处未标注" aria-label="遮住 ${missed} 处未标注">${icon('eyeOff',17)}</button>`:''}</div>`:'';
   return bar({title:ai?`材料 ${state.current+1}`:d.name,tools:`${viewSeg('原文','AI 看到的内容')}<button class="icon glass ${state.inspector?'on':''}" data-a="inspector" title="实体与代号" aria-label="实体与代号" aria-pressed="${state.inspector}">${icon('panel',17)}</button>`})
-    +`<main class="canvas" id="canvas" data-k="p-review">${paper(d,hits)}</main>`+rail(hits)+inspector()
+    +board()+`<main class="canvas" id="canvas" data-k="p-review">${paper(d,hits)}</main>`+rail(hits)+inspector()
     +dock('review',`${moreMenu([['export','share','导出原格式',!canExport(state)],['add-more','plus','添加材料'],['pause','pause','稍后继续']])}<label class="field">${icon('search',17)}<input id="search" type="search" aria-label="查找全部材料" placeholder="查找" value="${esc(state.search)}"></label>${find}${reviewGo()}`);
 }
 function donePage(){
@@ -821,7 +890,7 @@ function donePage(){
 }
 function restoreInline(line,r){
   const code=state.preview==='masked';let out='',last=0;
-  for(const m of line.matchAll(/⟦[^⟧]*⟧/g)){
+  for(const m of line.matchAll(TAG_RE)){
     const t=m[0],fix=state.restoreFix[t],real=r.map[t]??(fix&&fix!=='keep'?r.map[fix]:null);
     out+=esc(line.slice(last,m.index));last=m.index+t.length;
     if(real)out+=`<span class="r">${esc(code?t:real)}</span>`;
@@ -867,7 +936,7 @@ function exportSheet(){
   return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="导出原格式"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><div class="rows" style="padding-top:22px">${state.documents.map(d=>`<div><span>${esc(d.name.replace(/\.(\w+)$/,'.脱敏.$1'))}</span><small>${esc(d.format)}</small></div>`).join('')}</div>${noticeHtml()}<button class="cta" id="confirm" data-a="confirm-export">${icon('down',18)}导出到 mask-export/</button></section>`;
 }
 function protoView(){
-  const hints={setup:'',review:'试试：查找“张三”；划选 XH-2026-018',project:'新材料沿用原代号',restore:'⟦公司9⟧ 没有映射',full:''};
+  const hints={setup:'',review:'试试：查找“张三”；划选 XH-2026-018',project:'新材料沿用原代号',restore:'<公司[9].公司.名称> 没有映射',full:''};
   const scenes=[['full','完整流程'],['setup','首次使用'],['review','核对查漏'],['project','项目续接'],['restore','结果还原']];
   return `<button class="proto-btn" data-a="proto" aria-expanded="${protoOpen}">原型</button>${protoOpen?`<div class="proto-panel"><div class="proto-group">${Object.keys(HOSTS).map(x=>`<button class="${x===state.host?'on':''}" data-a="host" data-v="${x}">${x}</button>`).join('')}</div><div class="proto-group">${scenes.map(([v,l])=>`<button class="${v===state.scenario?'on':''}" data-a="scenario" data-v="${v}">${l}</button>`).join('')}</div>${hints[state.scenario]?`<p>${hints[state.scenario]}</p>`:''}</div>`:''}`;
 }
@@ -924,7 +993,12 @@ function decide(value){
   if(value==='mask'&&c.bad)return;
   const wasPending=c.decision==='pending';
   dispatch({type:'decision',value});
-  if(wasPending)advance(c.id);
+  // Identical pending occurrences keep the callout in place so the sync chip can be used.
+  if(wasPending&&!samePending(c))advance(c.id);
+}
+function samePending(c){
+  const type=state.entities[c.entity].type;
+  return allCands(state).some(x=>x.c.id!==c.id&&x.c.original===c.original&&state.entities[x.c.entity].type===type&&x.c.decision==='pending');
 }
 function advance(id){setTimeout(()=>{if(state.selected===id){dispatch({type:'next'});reveal();}},motionOK()?340:0);}
 function scenario(value){state=scenarioState(value,state.host);lastChatLength=-1;render();ensureTicker();}
@@ -938,9 +1012,21 @@ const ACTIONS={
   'start-scan':()=>{dispatch({type:'startScan'});ensureTicker();},
   doc:t=>dispatch({type:'selectDoc',index:+t.dataset.v}),
   mark:t=>dispatch({type:'select',id:t.dataset.v}),
-  jump:t=>{dispatch({type:'jump',index:+t.dataset.i,id:t.dataset.v});reveal();},
+  jump:t=>{
+    dispatch({type:'jump',index:+t.dataset.i,id:t.dataset.v});
+    // 窄屏上实体面板盖住正文，跳过去后收起。
+    if(state.inspector&&matchMedia('(max-width:1060px)').matches)dispatch({type:'inspector'});
+    reveal();
+  },
   preview:t=>dispatch({type:'preview',value:t.dataset.v}),
   inspector:()=>dispatch({type:'inspector'}),
+  board:t=>dispatch({type:'board',value:t.getAttribute('aria-expanded')!=='true'}),
+  todo:t=>{
+    dispatch(t.dataset.v?{type:'jump',index:+t.dataset.i,id:t.dataset.v}:{type:'selectDoc',index:+t.dataset.i});
+    // 窄屏上看板盖住正文，跳过去后收起。
+    if(matchMedia('(max-width:1060px)').matches)dispatch({type:'board',value:false});
+    reveal();
+  },
   menu:()=>dispatch({type:'menu'}),
   pick:t=>dispatch({type:'pick',value:t.dataset.v}),
   type:t=>dispatch({type:'type',value:t.dataset.v}),
@@ -949,7 +1035,7 @@ const ACTIONS={
   mask:()=>decide('mask'),
   keep:()=>decide('keep'),
   merge:()=>{const id=state.selected;dispatch({type:'merge'});advance(id);},
-  sync:()=>{dispatch({type:'sync'});notify('已同步');},
+  sync:()=>{const id=state.selected;dispatch({type:'sync'});notify('已同步');advance(id);},
   'bulk-entity':t=>dispatch({type:'bulkEntity',id:t.dataset.i,value:t.dataset.v}),
   'add-sel':()=>{dispatch({type:'addSel'});getSelection().removeAllRanges();},
   'add-hits':()=>dispatch({type:'addHits'}),
@@ -981,7 +1067,7 @@ const ACTIONS={
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-a]');
   if(t){if(!t.disabled)ACTIONS[t.dataset.a]?.(t);return;}
-  if(state.view==='bench'&&!e.target.closest('.callout,.menu,.inspector,#proto')&&(state.selected||state.menu||state.miss))dispatch({type:'blur'});
+  if(state.view==='bench'&&!e.target.closest('.callout,.menu,.inspector,.board,#proto')&&(state.selected||state.menu||state.miss))dispatch({type:'blur'});
 });
 function onInput(e){
   const id=e.target.id,v=e.target.value;
@@ -1003,6 +1089,14 @@ document.addEventListener('keydown',e=>{
     dispatch({type:'range',edge:e.target.dataset.edge,offset:(e.target.dataset.edge==='start'?c.start:c.end)+delta});
     return;
   }
+  // Review shortcuts: K keep, M mask, S sync identical occurrences, J next pending.
+  const key=!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.isComposing&&state.view==='bench'&&state.page==='review'&&!state.sheet
+    &&!e.target.closest('input,textarea,[contenteditable]')&&{k:'keep',m:'mask',s:'sync',j:'next'}[e.key.toLowerCase()];
+  if(key){
+    const button=key==='next'?document.querySelector('.dock [data-a=next]'):document.querySelector(`.callout [data-a=${key}]`);
+    if(button&&!button.disabled){e.preventDefault();ACTIONS[key]();}
+    return;
+  }
   if(e.key==='Escape'){
     if(state.sheet)dispatch({type:'sheet',value:''});
     else if(state.sel)dispatch({type:'clearSel'});
@@ -1016,6 +1110,7 @@ document.addEventListener('dragover',e=>{if(canDrop()){e.preventDefault();docume
 document.addEventListener('dragleave',e=>{if(!e.relatedTarget)document.body.classList.remove('dropping');});
 document.addEventListener('drop',e=>{document.body.classList.remove('dropping');if(canDrop()){e.preventDefault();addFiles(e.dataTransfer.files);}});
 addEventListener('resize',placeCallout);
+matchMedia('(max-width:1060px)').addEventListener('change',()=>render());
 
 // 拖手柄改范围
 function offsetAt(x,y){
@@ -1056,7 +1151,7 @@ document.addEventListener('mouseup',e=>{
     dispatch({type:'sel',value:{docIndex:state.current,s:si,p:pi,start,end,value:text.slice(start,end),conflict:overlaps(d,si,pi,start,end),rect:{left:r.left-P.left,top:r.top-P.top,width:r.width,height:r.height}}});
   });
 });
-render();
+if(!window.MASK_LIVE)render();
 </script>
 </body>
 </html>
