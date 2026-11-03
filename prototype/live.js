@@ -3,7 +3,7 @@ let liveRevision=0,liveMapping={},liveFiles=[],liveBusy=false,liveError='',liveR
 let editVersion=0,savedVersion=0,saveTimer=null,savingPromise=null;
 const pendingUploads=new Map();
 const protoDispatch=dispatch,protoToken=token,protoMoreMenu=moreMenu;
-const mutationTypes=new Set(['decision','merge','sync','bulkEntity','entity','type','range','addSel','addHits']);
+const mutationTypes=new Set(['decision','merge','sync','bulkEntity','maskAll','entity','type','range','addSel','addHits','pen','erase','boxApply','restore']);
 const cpToJs=(text,n)=>[...text].slice(0,n).join('').length;
 const jsToCp=(text,n)=>[...text.slice(0,n)].length;
 
@@ -23,11 +23,14 @@ async function task(work){
   try{await work();}catch(error){fail(error);}finally{liveBusy=false;liveProgress='';render();}
 }
 function hydrate(project){
+  // Imports, scans and removals replace documents wholesale; earlier snapshots no longer apply.
+  undoStack.length=0;redoStack.length=0;
   liveRevision=project.revision;liveMapping=project.mapping;liveOutputs=project.outputs;
   state.entities=project.entities;
   const selectedId=state.documents[state.current]?.id;
   templates.length=0;COMPILED.length=0;
   state.documents=project.documents.map((d,i)=>{
+    d.sections.forEach(sec=>{if(sec.breaks)sec.breaks=sec.breaks.map(([p,o])=>[p,cpToJs(sec.paragraphs[p],o)]);});
     templates.push({title:`材料 ${i+1}`});COMPILED.push({sections:d.sections});
     d.candidates=d.candidates.map(c=>{const text=d.sections[c.s].paragraphs[c.p];return {...c,start:cpToJs(text,c.start),end:cpToJs(text,c.end)};});
     return {...d,template:i,scan:d.status==='review'?100:0,notice:d.issues.join('；'),custom:false};
@@ -83,9 +86,11 @@ restoreInfo=function(s){
 ensureTicker=function(){};
 chatView=function(){return '';};
 protoView=function(){return `<div class="live-status">${liveBusy?esc(liveProgress||'处理中…'):savedVersion!==editVersion?'正在保存核对…':'本地工作台 · 核对自动保存'}</div>${liveError?`<aside class="live-error" role="alert"><b>未完成</b><p>${esc(liveError)}</p>${liveRetry?'<button data-a="retry-save">重试保存</button>':''}<button data-a="dismiss-error">关闭提示</button></aside>`:''}`;};
-bar=function({title='',tools=''}={}){
-  return `<header class="bar" data-k="bar"><button class="crumb glass" data-a="home" aria-label="材料列表">${icon('back',15)}<span>Mask</span></button>${title?`<div class="bar-title glass">${esc(title)}</div>`:'<div></div>'}<div class="bar-tools">${tools}<button class="icon glass" data-a="restore-open" title="还原结果" aria-label="还原结果">${icon('down',17)}</button></div></header>`;
+// 核对页的还原入口在灵动岛里；其他页面放在右上角。
+bar=function({title='',tools='',island=''}={}){
+  return `<header class="bar" data-k="bar"><button class="crumb glass" data-a="home" aria-label="材料列表">${icon('back',15)}<span>Mask</span></button>${title?`<div class="bar-title">${esc(title)}</div>`:''}${island}<div class="bar-tools">${tools}${island?'':`<button class="crumb glass" data-a="restore-open" title="还原 AI 结果中的代号">${icon('down',15)}<span>还原</span></button>`}</div></header>`;
 };
+islandExtras=function(){return `<button class="isl-btn" data-a="restore-open" title="还原 AI 结果中的代号">${icon('down',16)}<span class="lbl">还原</span></button>`;};
 tile=function(f){
   const doc=state.documents.find(d=>d.id===f.docId);
   return `<button class="tile ${f.checked?'on':''}" data-k="${f.key}" data-a="${doc?'open-existing':'toggle'}" data-v="${f.key}" title="${esc(f.name)}" aria-pressed="${!!f.checked}"><span class="slot">${mini(doc?{template:doc.template,doc}:null,2.08)}<span class="tick">${icon('check',13)}</span></span><span class="nm">${esc(f.name)}</span><span class="sub">${doc?doc.status==='failed'?'识别失败':doc.status==='review'?'继续核对':'待识别':f.local?'工作目录':'待导入'}</span></button>`;
@@ -95,19 +100,20 @@ selectPage=function(){
   return bar()+`<main class="center" data-k="p-import"><h1 class="ask">选择需要脱敏的材料</h1><p class="quiet">TXT · Word（.docx）· 原生 PDF<br>原文与映射只在本机处理</p><div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${state.documents.length?'<button class="cta" data-a="review-open">继续核对已有材料</button>':''}</main>`+dock('import',`<label class="field">${icon('note',18)}<input id="note" aria-label="补充说明" placeholder="补充说明，可写真名，会一起识别" value="${esc(state.note)}"></label>${go({cls:'next',a:'start-scan',label:`开始识别 ${fresh+queued} 份`,inner:icon('right',20),disabled:liveBusy||!(fresh+queued+Number(!!state.note.trim())),key:'start'})}`);
 };
 reviewGo=function(){
-  const c=counts(state),bad=state.documents.filter(d=>d.status==='failed');
-  if(liveBusy)return go({cls:'busy',label:'本地处理中',inner:'',pct:.25,key:'busy'});
-  if(bad.length)return go({cls:'todo',a:'start-scan',label:'重试失败的识别',inner:icon('right'),key:'retry'});
-  if(c.scanning)return go({cls:'next',a:'start-scan',label:'识别剩余材料',inner:icon('right'),key:'scan'});
-  if(c.pending)return go({cls:'todo',a:'next',label:`下一处待确认，还剩 ${c.pending} 处（J）`,inner:c.pending,pct:1-c.pending/(c.masked+c.kept+c.pending),key:'n'+c.pending});
-  if(conflicts().length)return go({cls:'todo',a:'conflict',label:'处理重叠范围',inner:'!',key:'conflict'});
-  return go({cls:'send',a:'release',label:'导出脱敏 Markdown',inner:icon('up',20),key:'export'});
+  const c=counts(state),bad=state.documents.filter(d=>d.status==='failed'),clash=conflicts().length;
+  if(liveBusy)return act({cls:'busy',title:'本地处理中',inner:'<i class="spin"></i><span class="lbl">处理中</span>',key:'busy'});
+  if(bad.length)return act({cls:'todo',a:'start-scan',title:'重试失败的识别',inner:`${icon('right',15)}<span class="lbl">重试识别</span>`,key:'retry'});
+  if(c.scanning)return act({cls:'next',a:'start-scan',title:'识别剩余材料',inner:`${icon('right',15)}<span class="lbl">识别剩余材料</span>`,key:'scan'});
+  if(c.pending)return act({cls:'todo',a:'next',title:`下一处待确认，还剩 ${c.pending} 处（J）`,inner:`<b>${c.pending}</b><span class="lbl">处待确认</span>${icon('next',14)}`,key:'n'+c.pending});
+  if(clash)return act({cls:'todo',a:'conflict',title:'处理重叠范围',inner:`<b>${clash}</b><span class="lbl">处范围重叠</span>${icon('next',14)}`,key:'conflict'+clash});
+  return act({cls:'ready',a:'release',title:'导出脱敏 Markdown',inner:`${icon('up',15)}<span class="lbl">导出脱敏稿</span>`,key:'export'});
 };
-paraHtml=function(d,si,pi,hits,cur){
+paraHtml=function(d,si,pi,hits,cur,from=0,to){
   const text=COMPILED[d.template].sections[si].paragraphs[pi],here=hits.filter(h=>h.s===si&&h.p===pi);
-  let last=0,out='';
+  to??=text.length;
+  let last=from,out='';
   // Overlapping alternatives remain in the candidate list; this only chooses how to draw text.
-  const candidates=d.candidates.filter(c=>c.s===si&&c.p===pi).sort((a,b)=>a.start-b.start||b.end-a.end);
+  const candidates=d.candidates.filter(c=>c.s===si&&c.p===pi&&c.start>=from&&c.start<to).sort((a,b)=>a.start-b.start||b.end-a.end);
   const selected=candidates.find(c=>c.id===state.selected);
   const visible=candidates.filter(c=>!selected||c===selected||c.end<=selected.start||c.start>=selected.end);
   const plain=(from,to)=>{
@@ -119,13 +125,15 @@ paraHtml=function(d,si,pi,hits,cur){
     return result+esc(text.slice(pos,to));
   };
   for(const c of visible){if(c.start<last)continue;out+=plain(last,c.start)+markHtml(c,here,cur);last=c.end;}
-  return out+plain(last,text.length);
+  return out+plain(last,to);
 };
 paper=function(d,hits){
   const here=hits.filter(h=>h.docIndex===state.current),cur=hits[state.hit],ai=state.preview==='masked';
-  const body=COMPILED[d.template].sections.map((sec,si)=>`<h3>${esc(sec.title)}</h3>${sec.paragraphs.map((_,pi)=>`<p data-s="${si}" data-p="${pi}" style="white-space:pre-wrap;overflow-wrap:anywhere">${paraHtml(d,si,pi,here,cur)}</p>`).join('')}`).join('');
-  const list=!ai?`<details class="candidate-list"><summary>全部候选（${d.candidates.length} 处，可选择重叠候选）</summary>${d.candidates.map(c=>`<button data-a="mark" data-v="${c.id}">${esc(c.original)} · ${esc(state.entities[c.entity].type)} · ${{pending:'待确认',mask:'脱敏',keep:'保留'}[c.decision]}</button>`).join('')}</details>`:'';
-  return `<article class="page ${ai?'ai':''}" data-k="doc${d.id}">${d.notice?`<div class="flag">${esc(d.notice)}；按部分处理导出</div>`:''}${d.error?`<div class="flag" role="alert">识别失败：${esc(d.error)}</div>`:''}${d.status!=='review'?`<div class="flag">${d.status==='failed'?'请修复原因后重试':'尚未完成识别'}</div>`:''}<h1>${ai?'材料 '+(state.current+1):esc(d.name)}</h1>${body}${list}${calloutFor(d)}</article>`;
+  const sheets=sheetsOf(d),c=d.candidates.find(c=>c.id===state.selected),target=state.sel||c;
+  const coSheet=target?Math.max(0,sheetOf(sheets,target.s,target.p,target.start)):-1;
+  const flags=`${d.notice?`<div class="flag">${esc(d.notice)}；按部分处理导出</div>`:''}${d.error?`<div class="flag" role="alert">识别失败：${esc(d.error)}</div>`:''}${d.status!=='review'?`<div class="flag">${d.status==='failed'?'请修复原因后重试':'尚未完成识别'}</div>`:''}`;
+  const name=ai?'材料 '+(state.current+1):d.name;
+  return sheets.map((sh,i)=>`<div class="sheet-no" data-k="n${d.id}-${i}">${i?'':esc(name)+' · '}${esc(sh.label)}</div><article class="page ${ai?'ai':''} ${sh.page?'pg':''}" data-k="doc${d.id}-${i}">${i?'':flags}${sh.parts.map(([si,pi,from,to])=>`<p data-s="${si}" data-p="${pi}" data-o="${from}" style="white-space:pre-wrap;overflow-wrap:anywhere">${paraHtml(d,si,pi,here,cur,from,to)}</p>`).join('')}${i===coSheet?calloutFor(d):''}</article>`).join('');
 };
 moreMenu=function(items){
   if(state.page!=='review'&&state.page!=='done')return protoMoreMenu(items);
@@ -140,9 +148,9 @@ donePage=function(){
 restorePage=function(){
   if(state.restoreInput.trim()){
     const r=restoreInfo(state),partial=r.kept.length>0;
-    const status=r.missing.length?`${r.missing.length} 个代号没有映射`:partial?`部分还原，${r.kept.length} 个代号保留`:`已还原 ${r.replaced} 处，等待保存`;
-    const primary=r.missing.length?go({cls:'todo',a:'next-miss',label:'下一处没有映射的代号',inner:r.missing.length,pct:0,key:'missing'}):go({cls:'save',a:'save-restored',label:partial?'保存部分还原版':'保存真名版',inner:icon('down',20),disabled:liveBusy,key:'save'});
-    return bar({title:'AI 结果',tools:viewSeg('真名','代号',['eye','eyeOff'])})+`<main class="canvas" id="canvas" data-k="p-restore">${restorePaper(r)}</main>`+dock('restore',`<button class="icon" data-a="clear-restore" aria-label="换一份">${icon('x',18)}</button><div class="field"><span class="field-text" role="status">${esc(status)}</span></div>${primary}`);
+    const save=partial?'保存部分还原版':'保存真名版',status=r.missing.length?'':partial?`部分还原，${r.kept.length} 个代号保留`:`已还原 ${r.replaced} 处`;
+    const primary=r.missing.length?act({cls:'todo',a:'next-miss',title:'下一处没有映射的代号',inner:`<b>${r.missing.length}</b><span class="lbl">个代号没有映射</span>${icon('next',14)}`,key:'missing'+r.missing.length}):act({cls:'save',a:'save-restored',title:save,inner:`${icon('down',15)}<span class="lbl">${save}</span>`,disabled:liveBusy,key:'save'});
+    return bar({title:'AI 结果',island:restoreIsland(status,primary)})+`<main class="canvas" id="canvas" data-k="p-restore">${restorePaper(r)}</main>`;
   }
   return bar({title:'还原结果'})+`<main class="center" data-k="p-restore-input"><h1 class="ask">还原 AI 结果中的代号</h1><p class="quiet">使用本项目已保存的映射，真名版只保存到本机</p><button class="cta" data-a="restore-file">打开 TXT / Markdown 结果文件</button></main>`+dock('restore',`<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴含代号的文本"></textarea></label>`);
 };
@@ -241,7 +249,6 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
   .live-status{position:fixed;bottom:6px;left:16px;font-size:11px;color:var(--ink2);z-index:50}
   .live-error{position:fixed;right:18px;top:64px;z-index:100;width:min(420px,90vw);padding:18px;border-radius:16px;background:var(--elev);box-shadow:var(--shadow-2);border:1px solid var(--zhu);overflow-wrap:anywhere}
   .live-error p{white-space:pre-line;margin:8px 0;max-height:35vh;overflow:auto}.live-error button{padding:6px 12px;border:1px solid var(--line);border-radius:8px;margin:6px 6px 0 0}
-  .candidate-list{font:13px/1.6 var(--ui);margin:32px 0}.candidate-list button{display:block;padding:8px;text-align:left;width:100%;border-bottom:1px solid var(--line)}
   .downloads{display:grid;gap:12px;max-height:40vh;overflow:auto;margin:24px auto}.download{color:var(--ink);display:flex;align-items:center;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;text-decoration:none}
   .partial-ack{display:flex;gap:8px;margin:16px 0;align-items:flex-start}.modal h2{margin:22px 0 14px}.quiet{line-height:1.7}.tiles{max-height:45vh;overflow:auto}
 `;document.head.append(liveStyle);

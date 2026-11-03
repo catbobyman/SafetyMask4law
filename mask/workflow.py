@@ -11,7 +11,7 @@ import time
 import uuid
 import zipfile
 
-from .documents import read_document, export_original, masked_sections
+from .documents import read_document, read_docx, export_original, masked_sections
 from .official import ROOT, TAG, restore, save_mapping, save_mapping, save_mapping
 
 
@@ -84,6 +84,10 @@ class Project:
             'workspace': str(self.workspace)}
         # Projects saved before export tracking: every existing tag may already be in an AI result.
         self.state.setdefault('issued', sorted(self.state['mapping']))
+        # Word documents imported before page tracking: read the saved page starts from the snapshot.
+        for doc in self.state['documents']:
+            if doc['format'] == 'DOCX' and 'breaks' not in doc['sections'][0]:
+                doc['sections'][0]['breaks'] = read_docx(Path(doc['source']).read_bytes())['sections'][0]['breaks']
 
     def save(self):
         self.state['revision'] += 1
@@ -216,8 +220,10 @@ class Project:
         incoming = {d['id']: d for d in payload['documents']}
         for doc in proposed['documents']:
             candidates = incoming[doc['id']]['candidates']
-            if not {c['id'] for c in doc['candidates']} <= {c['id'] for c in candidates}:
-                raise ValueError('已有候选必须明确保留或脱敏，不能直接丢弃')
+            # Only a candidate the user added may be removed (eraser, undo); model candidates need a decision.
+            kept = {c['id'] for c in candidates}
+            if any(c['id'] not in kept and not c.get('manual') for c in doc['candidates']):
+                raise ValueError('识别出的候选必须明确保留或脱敏，不能直接丢弃')
             if len({c['id'] for c in candidates}) != len(candidates):
                 raise ValueError('候选编号重复')
             for c in candidates:

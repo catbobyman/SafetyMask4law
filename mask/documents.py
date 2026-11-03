@@ -69,6 +69,34 @@ def field_codes(root):
 PAGE_FIELDS = {'PAGE', 'NUMPAGES', 'SECTIONPAGES', 'SECTION'}
 
 
+def paragraph_breaks(p):
+    """Offsets in p where Word started a new page, and whether the next paragraph starts one.
+
+    Word records rendered page starts as lastRenderedPageBreak when it saves; offsets count
+    the same characters as text_nodes so they line up with the extracted paragraph.
+    """
+    cuts, pos = [], 0
+    ppr = p.find('w:pPr', NS)
+    before = ppr.find('w:pageBreakBefore', NS) if ppr is not None else None
+    if before is not None and before.get(f'{{{W}}}val', 'true') not in {'0', 'false', 'off'}:
+        cuts.append(0)
+    sect = ppr.find('w:sectPr', NS) if ppr is not None else None
+    kind = sect.find('w:type', NS) if sect is not None else None
+    after = sect is not None and (kind is None or kind.get(f'{{{W}}}val') in {'nextPage', 'oddPage', 'evenPage'})
+    for node in p.iter():
+        if next(node.iterancestors(f'{{{W}}}p'), None) is not p:
+            continue
+        if node.tag == f'{{{W}}}lastRenderedPageBreak':
+            cuts.append(pos)
+        elif node.tag == f'{{{W}}}t':
+            pos += len(node.text or '')
+        elif node.tag in {f'{{{W}}}tab', f'{{{W}}}cr', f'{{{W}}}br'}:
+            pos += 1
+            if node.tag == f'{{{W}}}br' and node.get(f'{{{W}}}type') == 'page':
+                cuts.append(pos)
+    return cuts, after
+
+
 def read_docx(data):
     sections, issues = [], []
     try:
@@ -78,14 +106,23 @@ def read_docx(data):
     with archive as z:
         for part in docx_parts(z):
             root = xml(z.read(part))
-            paragraphs, sources = [], []
+            paragraphs, sources, breaks = [], [], set()
             for i, p in enumerate(root.iter(f'{{{W}}}p')):
                 if any(a.tag == f'{{{W}}}txbxContent' for a in p.iterancestors()):
                     continue
-                paragraphs.append(''.join(t for _, t in text_nodes(p)))
+                n, text = len(paragraphs), ''.join(t for _, t in text_nodes(p))
+                paragraphs.append(text)
                 sources.append({'part': part, 'paragraph': i})
+                cuts, after = paragraph_breaks(p)
+                # A break at the end of a paragraph is the start of the next one; one page start is kept once.
+                breaks.update((n, off) if off < len(text) or off == 0 else (n + 1, 0) for off in cuts)
+                if after:
+                    breaks.add((n + 1, 0))
             title = '正文与表格' if 'document.xml' in part else ('页眉' if 'header' in part else '页脚')
-            sections.append({'title': title, 'paragraphs': paragraphs, 'sources': sources})
+            section = {'title': title, 'paragraphs': paragraphs, 'sources': sources}
+            if 'document.xml' in part:
+                section['breaks'] = [list(b) for b in sorted(breaks) if b != (0, 0) and b[0] < len(paragraphs)]
+            sections.append(section)
             for tag, label in [('ins', '修订'), ('del', '删除修订'), ('txbxContent', '文本框'),
                                ('hyperlink', '超链接目标'), ('drawing', '图片或绘图'),
                                ('object', '嵌入对象'), ('altChunk', '外部内容')]:
