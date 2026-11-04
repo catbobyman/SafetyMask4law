@@ -1,6 +1,9 @@
 /* Served only by the local application. Reuse the prototype's review gestures and layout. */
 let liveRevision=0,liveMapping={},liveFiles=[],liveBusy=false,liveError='',liveRetry=false,liveProgress='',liveOutputs=[],liveDone={title:'',sub:''};
 let editVersion=0,savedVersion=0,saveTimer=null,savingPromise=null;
+// An imported mapping file replaces the project mapping for restore only; it is never merged into the project.
+let liveRestoreMapping=null;
+const restoreMapping=()=>liveRestoreMapping?Object.fromEntries(Object.entries(liveRestoreMapping.mapping).map(([t,v])=>[t,v[0]])):liveMapping;
 const pendingUploads=new Map();
 const protoDispatch=dispatch,protoToken=token,protoMoreMenu=moreMenu;
 const mutationTypes=new Set(['decision','merge','sync','bulkEntity','maskAll','entity','type','range','addSel','addHits','pen','erase','boxApply','restore']);
@@ -78,9 +81,9 @@ dispatch=function(action){
 };
 token=function(s,c){return s.entities[c.entity]?.variants?.[c.original]||protoToken(s,c);};
 restoreInfo=function(s){
-  const all=findTags(s.restoreInput).map(m=>m[0]),tokens=[...new Set(all)],fix=s.restoreFix;
-  return {map:liveMapping,tokens,missing:tokens.filter(t=>!(t in liveMapping)&&!fix[t]),kept:tokens.filter(t=>fix[t]==='keep'),
-    replaced:all.filter(t=>t in liveMapping||(fix[t]&&fix[t]!=='keep')).length,suggest:tagSuggestions(tokens,liveMapping)};
+  const map=restoreMapping(),all=findTags(s.restoreInput).map(m=>m[0]),tokens=[...new Set(all)],fix=s.restoreFix;
+  return {map,tokens,missing:tokens.filter(t=>!(t in map)&&!fix[t]),kept:tokens.filter(t=>fix[t]==='keep'),
+    replaced:all.filter(t=>t in map||(fix[t]&&fix[t]!=='keep')).length,suggest:tagSuggestions(tokens,map)};
 };
 // Disable the demonstration's synthetic host, installation, and scan timers in live mode.
 ensureTicker=function(){};
@@ -152,10 +155,12 @@ restorePage=function(){
     const r=restoreInfo(state),partial=r.kept.length>0;
     const save=partial?'保存部分还原版':'保存真名版',status=r.missing.length?'':partial?`部分还原，${r.kept.length} 个代号保留`:`已还原 ${r.replaced} 处`;
     const fixable=r.missing.filter(t=>r.suggest[t]).length;
-    const primary=(fixable?`<button class="isl-btn" data-a="accept-suggest" title="把形状被改动的代号按格式还原后的代号处理">${icon('check',15)}<span class="lbl">采用 ${fixable} 个格式建议</span></button>`:'')+(r.missing.length?act({cls:'todo',a:'next-miss',title:'下一处没有映射的代号',inner:`<b>${r.missing.length}</b><span class="lbl">个代号没有映射</span>${icon('next',14)}`,key:'missing'+r.missing.length}):act({cls:'save',a:'save-restored',title:save,inner:`${icon('down',15)}<span class="lbl">${save}</span>`,disabled:liveBusy,key:'save'}));
+    const source=liveRestoreMapping?`<button class="isl-btn" data-a="clear-mapping" title="正在使用 ${esc(liveRestoreMapping.name)}；点此改用本项目映射">${icon('x',15)}<span class="lbl">已用映射文件</span></button>`
+      :`<button class="isl-btn" data-a="mapping-file" title="用导出的 mapping.json 还原，不并入本项目">${icon('lock',15)}<span class="lbl">映射文件</span></button>`;
+    const primary=source+(fixable?`<button class="isl-btn" data-a="accept-suggest" title="把形状被改动的代号按格式还原后的代号处理">${icon('check',15)}<span class="lbl">采用 ${fixable} 个格式建议</span></button>`:'')+(r.missing.length?act({cls:'todo',a:'next-miss',title:'下一处没有映射的代号',inner:`<b>${r.missing.length}</b><span class="lbl">个代号没有映射</span>${icon('next',14)}`,key:'missing'+r.missing.length}):act({cls:'save',a:'save-restored',title:save,inner:`${icon('down',15)}<span class="lbl">${save}</span>`,disabled:liveBusy,key:'save'}));
     return bar({title:'AI 结果',island:restoreIsland(status,primary)})+`<main class="canvas" id="canvas" data-k="p-restore">${restorePaper(r)}</main>`;
   }
-  return bar({title:'还原结果'})+`<main class="center" data-k="p-restore-input"><h1 class="ask">还原 AI 结果中的代号</h1><p class="quiet">使用本项目已保存的映射，真名版只保存到本机</p><button class="cta" data-a="restore-file">打开 TXT / Markdown 结果文件</button></main>`+dock('restore',`<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴含代号的文本"></textarea></label>`);
+  return bar({title:'还原结果'})+`<main class="center" data-k="p-restore-input"><h1 class="ask">还原 AI 结果中的代号</h1><p class="quiet">${liveRestoreMapping?`使用映射文件 ${esc(liveRestoreMapping.name)}（${Object.keys(liveRestoreMapping.mapping).length} 个代号），不并入本项目`:'使用本项目已保存的映射'}，真名版只保存到本机</p><button class="cta" data-a="restore-file">打开 TXT / Markdown 结果文件</button>${liveRestoreMapping?'<button class="alt" data-a="clear-mapping">改用本项目映射</button>':'<button class="alt" data-a="mapping-file">改用映射文件（mapping.json）</button>'}</main>`+dock('restore',`<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴含代号的文本"></textarea></label>`);
 };
 function exportDialog(kind){
   const partial=state.documents.some(d=>d.issues.length),c=counts(state);
@@ -217,9 +222,12 @@ Object.assign(ACTIONS,{
   'restore-open':()=>{state.page='restore';state.view='bench';render();},
   'clear-restore':()=>{state.restoreInput='';state.restoreFix={};state.page='restore';state.restored=false;render();},
   'restore-file':()=>document.getElementById('result-picker').click(),
+  'mapping-file':()=>mappingPicker.click(),
+  // Fixes name tags of the previous mapping, so switching the mapping starts the choices over.
+  'clear-mapping':()=>{liveRestoreMapping=null;state.restoreFix={};state.miss=null;state.restored=false;render();},
   'accept-suggest':()=>{const r=restoreInfo(state);r.missing.forEach(t=>{if(r.suggest[t])state.restoreFix[t]=r.suggest[t];});state.miss=null;state.restored=false;render();},
   'save-restored':()=>task(async()=>{
-    await persist();const result=await api('restore',{text:state.restoreInput,fixes:state.restoreFix,save:true});
+    await persist();const result=await api('restore',{text:state.restoreInput,fixes:state.restoreFix,save:true,mapping:liveRestoreMapping?.mapping??null});
     hydrate(await api('project',undefined,'GET'));
     liveFiles=[result.file];state.restored=true;state.page='done';
     liveDone={title:'还原结果已保存到本机',sub:'真名版仅供本地使用；文件名标明是否部分还原'};
@@ -246,6 +254,12 @@ resultPicker.onchange=()=>task(async()=>{
   const form=new FormData();form.append('file',resultPicker.files[0]);
   const result=await api('read-result',form);state.restoreInput=result.text;state.restoreFix={};state.page='restore';state.restored=false;resultPicker.value='';
 });
+const mappingPicker=document.createElement('input');mappingPicker.type='file';mappingPicker.accept='.json';mappingPicker.hidden=true;document.body.append(mappingPicker);
+mappingPicker.onchange=()=>task(async()=>{
+  if(!mappingPicker.files.length)return;
+  const form=new FormData();form.append('file',mappingPicker.files[0]);mappingPicker.value='';
+  liveRestoreMapping=await api('read-mapping',form);state.restoreFix={};state.miss=null;state.page='restore';state.restored=false;
+});
 addEventListener('beforeunload',event=>{if(savedVersion!==editVersion||liveBusy){event.preventDefault();event.returnValue='';}});
 const liveStyle=document.createElement('style');liveStyle.textContent=`
   body[data-view=bench] #proto{display:block}
@@ -253,6 +267,7 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
   .live-error{position:fixed;right:18px;top:64px;z-index:100;width:min(420px,90vw);padding:18px;border-radius:16px;background:var(--elev);box-shadow:var(--shadow-2);border:1px solid var(--zhu);overflow-wrap:anywhere}
   .live-error p{white-space:pre-line;margin:8px 0;max-height:35vh;overflow:auto}.live-error button{padding:6px 12px;border:1px solid var(--line);border-radius:8px;margin:6px 6px 0 0}
   .downloads{display:grid;gap:12px;max-height:40vh;overflow:auto;margin:24px auto}.download{color:var(--ink);display:flex;align-items:center;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;text-decoration:none}
+  .alt{display:block;margin:16px auto 0;color:var(--ink2);font-size:13px;text-decoration:underline;text-underline-offset:3px}
   .partial-ack{display:flex;gap:8px;margin:16px 0;align-items:flex-start}.modal h2{margin:22px 0 14px}.quiet{line-height:1.7}.tiles{max-height:45vh;overflow:auto}
 `;document.head.append(liveStyle);
 (async()=>{

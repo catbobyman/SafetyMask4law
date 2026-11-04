@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import json
 from pathlib import Path
 import secrets
 import threading
@@ -10,7 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from .documents import decode_text
-from .official import ROOT, Recognizer
+from .official import ROOT, Recognizer, normalize_mapping_dict
 from .workflow import Project
 
 
@@ -30,6 +31,8 @@ class Restore(BaseModel):
     text: str
     fixes: dict[str, str] = {}
     save: bool = False
+    # An imported official mapping file, used for this restore only instead of the project mapping.
+    mapping: dict | None = None
 
 
 def create_app(project: Project, launch_token: str):
@@ -182,13 +185,26 @@ def create_app(project: Project, launch_token: str):
     @app.post('/api/restore')
     def restore(body: Restore):
         with lock:
-            return project.restore_result(body.text, body.fixes, body.save)
+            return project.restore_result(body.text, body.fixes, body.save, body.mapping)
 
     @app.post('/api/read-result')
     def read_result(file: UploadFile = File(...)):
         if Path(file.filename or '').suffix.lower() not in {'.txt', '.md'}:
             raise ValueError('还原结果请提供 TXT 或 Markdown，或直接粘贴文字')
         return {'text': decode_text(file.file.read())[0]}
+
+    @app.post('/api/read-mapping')
+    def read_mapping(file: UploadFile = File(...)):
+        if Path(file.filename or '').suffix.lower() != '.json':
+            raise ValueError('映射文件请提供 .json，例如导出的 <目录名>.mapping.json')
+        try:
+            data = json.loads(decode_text(file.file.read())[0])
+            # Same layouts as official load_mapping, without its treat-text-as-a-path lookup.
+            if isinstance(data, dict) and isinstance(data.get('mapping'), dict):
+                data = data['mapping']
+            return {'name': Path(file.filename).name, 'mapping': normalize_mapping_dict(data)}
+        except ValueError as exc:
+            raise ValueError(f'不是有效的映射文件：{exc}') from exc
 
     @app.get('/api/download/{identity}')
     def download(identity: str):

@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 from pathlib import Path
 import os
 import re
@@ -196,6 +197,17 @@ def test_real_model_api_roundtrip(tmp_path):
         response = client.post('/api/restore',json={'text':'<人名[1].人名.名称>电话<电话[1].电话.名称>','save':True})
         assert response.status_code == 200, response.text
         assert response.json()['text'] == '张三电话13800138000'
+        # A mapping file from another project restores this text only; the project mapping is unchanged.
+        before = deepcopy(project.state['mapping'])
+        upload = json.dumps({'mapping': {'<人名[1].人名.名称>': ['李四', '小李']}}, ensure_ascii=False).encode()
+        response = client.post('/api/read-mapping', files={'file': ('other.mapping.json', upload)})
+        assert response.status_code == 200, response.text
+        imported = response.json()['mapping']
+        response = client.post('/api/restore', json={'text': '<人名[1].人名.名称>电话<电话[1].电话.名称>', 'mapping': imported})
+        assert response.json()['text'] == '李四电话<电话[1].电话.名称>' and response.json()['missing'] == ['<电话[1].电话.名称>']
+        assert project.state['mapping'] == before
+        for name, data in [('bad.json', b'{"not-a-tag": ["x"]}'), ('bad.json', b'{'), ('map.txt', upload)]:
+            assert client.post('/api/read-mapping', files={'file': (name, data)}).status_code == 400
 
 
 def test_company_spellings_generic_alias_and_unissued_tags(tmp_path):

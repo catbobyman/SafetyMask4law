@@ -12,7 +12,7 @@ import uuid
 import zipfile
 
 from .documents import read_document, read_docx, export_original, masked_sections
-from .official import ROOT, TAG, restore, save_mapping, save_mapping, save_mapping
+from .official import ROOT, TAG, normalize_mapping_dict, restore, save_mapping
 
 
 # Official SKILL.md requires explaining the tag format to the cloud model, or it may rewrite tags and break restore.
@@ -366,8 +366,11 @@ class Project:
         self.save()
         return {'file': item, 'revision': self.state['revision']}
 
-    def restore_result(self, text, fixes, save=False):
-        result = restore(text, self.state['mapping'], fixes)
+    def restore_result(self, text, fixes, save=False, mapping=None):
+        if mapping is not None:
+            # Official {tag: [values]} from an imported file; like official tool seek, restore to the first value.
+            mapping = {tag: values[0] for tag, values in normalize_mapping_dict(mapping).items()}
+        result = restore(text, self.state['mapping'] if mapping is None else mapping, fixes)
         if save:
             if result['missing']:
                 raise ValueError('存在未处理的缺失代号，请先选择对应映射或保留代号')

@@ -22,7 +22,7 @@ sys.path.insert(0, str(SKILL / 'scripts'))
 from has_text.client import HaSClient  # noqa: E402
 from has_text.commands.scan import run_scan  # noqa: E402
 from has_text.commands.seek import _tool_seek  # noqa: E402
-from has_text.mapping import TAG_PATTERN as TAG, save_mapping  # noqa: E402,F401
+from has_text.mapping import TAG_PATTERN as TAG, normalize_mapping_dict, save_mapping  # noqa: E402,F401
 
 
 class LocalClient(HaSClient):
