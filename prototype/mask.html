@@ -526,7 +526,13 @@ const counts=s=>{const all=allCands(s);return {pending:all.filter(x=>x.c.decisio
 const canExport=s=>s.documents.length>0&&counts(s).scanning===0&&counts(s).pending===0;
 const canRelease=s=>canExport(s)&&s.documents.some(d=>!d.handed);
 // HaS 官方代号形状 <类型[编号].分类.属性>；同一主体的其他写法用 名称2、名称3。
-const TAG_RE=/<[^<>\[\]]+\[\d+\]\.[^<>\[\].]+\.[^<>\[\].]+>/g;
+const TAG_RE=/<[^<>\[\]]+\[\d+\]\.[^<>\[\].]+\.[^<>\[\].]+>/g,TAG_FULL=new RegExp('^'+TAG_RE.source+'$');
+// Tag-like text an AI may have rewritten: full-width or escaped brackets, other dots, inserted spaces. Same rule as mask/official.py.
+const LOOSE_TAG_RE=/(?:&lt;|\\?[<＜〈])[^<>＜＞〈〉]{1,80}?(?:&gt;|\\?[>＞〉])/g,TAG_FOLD={'【':'[','】':']','〈':'<','〉':'>','。':'.'};
+const tagShape=t=>t.replace(/&lt;/g,'<').replace(/&gt;/g,'>').normalize('NFKC').replace(/[\s\\]/g,'').replace(/[【】〈〉。]/g,c=>TAG_FOLD[c]);
+const findTags=text=>[...text.matchAll(LOOSE_TAG_RE)].filter(m=>TAG_FULL.test(tagShape(m[0])));
+// A rewritten tag is never replaced silently; its official shape is only offered as a suggestion.
+const tagSuggestions=(tokens,map)=>Object.fromEntries(tokens.filter(t=>!(t in map)&&tagShape(t) in map).map(t=>[t,tagShape(t)]));
 const tagFor=(e,i=0)=>`<${e.type}[${e.no}].${e.type}.名称${i>0?i+1:''}>`;
 function token(s,c){
   const e=s.entities[c.entity];
@@ -560,8 +566,8 @@ function reportMarkdown(s){
   return ['# 付款与违约责任风险清单','','| 材料 | 文件 | 尾款期限 | 逾期违约金 |','| --- | --- | --- | --- |',...r.rows.map(x=>`| ${x.join(' | ')} |`),'',...r.notes.map((n,i)=>`${i+1}. ${n}`)].join('\n');
 }
 function restoreInfo(s){
-  const map=mapping(s),all=s.restoreInput.match(TAG_RE)||[],tokens=[...new Set(all)],fix=s.restoreFix;
-  return {map,tokens,missing:tokens.filter(t=>!(t in map)&&!fix[t]),kept:tokens.filter(t=>fix[t]==='keep'),replaced:all.filter(t=>t in map||(fix[t]&&fix[t]!=='keep')).length};
+  const map=mapping(s),all=findTags(s.restoreInput).map(m=>m[0]),tokens=[...new Set(all)],fix=s.restoreFix;
+  return {map,tokens,missing:tokens.filter(t=>!(t in map)&&!fix[t]),kept:tokens.filter(t=>fix[t]==='keep'),replaced:all.filter(t=>t in map||(fix[t]&&fix[t]!=='keep')).length,suggest:tagSuggestions(tokens,map)};
 }
 function makeDocument(id,f){
   const t=templates[f.template];
@@ -1082,7 +1088,7 @@ function donePage(){
 }
 function restoreInline(line,r){
   const code=state.preview==='masked';let out='',last=0;
-  for(const m of line.matchAll(TAG_RE)){
+  for(const m of findTags(line)){
     const t=m[0],fix=state.restoreFix[t],real=r.map[t]??(fix&&fix!=='keep'?r.map[fix]:null);
     out+=esc(line.slice(last,m.index));last=m.index+t.length;
     if(real)out+=`<span class="r">${esc(code?t:real)}</span>`;
@@ -1101,7 +1107,8 @@ function restorePaper(r){
     else if(line.trim())html+=`<p>${restoreInline(line,r)}</p>`;
   });
   flush();
-  const co=state.miss?`<div class="callout" data-k="co" data-float role="dialog" aria-label="${esc(state.miss)}"><p class="why hot">映射中没有这个代号</p><div class="choices list" style="margin:0;padding:0;border:0">${Object.entries(r.map).map(([t,v])=>`<button data-a="fix" data-v="${esc(t)}">${esc(t)}<span style="color:var(--ink3)">${esc(v)}</span></button>`).join('')}<button data-a="fix" data-v="keep">${icon('eye',14)} 保留代号</button></div></div>`:'';
+  const sug=r.suggest[state.miss],choices=Object.entries(r.map).sort(([a],[b])=>(b===sug)-(a===sug));
+  const co=state.miss?`<div class="callout" data-k="co" data-float role="dialog" aria-label="${esc(state.miss)}"><p class="why hot">${sug?'代号形状被改动，第一项是格式还原后的代号':'映射中没有这个代号'}</p><div class="choices list" style="margin:0;padding:0;border:0">${choices.map(([t,v])=>`<button data-a="fix" data-v="${esc(t)}">${esc(t)}<span style="color:var(--ink3)">${esc(v)}</span></button>`).join('')}<button data-a="fix" data-v="keep">${icon('eye',14)} 保留代号</button></div></div>`:'';
   return `<article class="page" data-k="restored">${html}${co}</article>`;
 }
 function restoreIsland(status,primary){

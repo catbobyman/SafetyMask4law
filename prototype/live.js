@@ -78,9 +78,9 @@ dispatch=function(action){
 };
 token=function(s,c){return s.entities[c.entity]?.variants?.[c.original]||protoToken(s,c);};
 restoreInfo=function(s){
-  const all=s.restoreInput.match(TAG_RE)||[],tokens=[...new Set(all)],fix=s.restoreFix;
+  const all=findTags(s.restoreInput).map(m=>m[0]),tokens=[...new Set(all)],fix=s.restoreFix;
   return {map:liveMapping,tokens,missing:tokens.filter(t=>!(t in liveMapping)&&!fix[t]),kept:tokens.filter(t=>fix[t]==='keep'),
-    replaced:all.filter(t=>t in liveMapping||(fix[t]&&fix[t]!=='keep')).length};
+    replaced:all.filter(t=>t in liveMapping||(fix[t]&&fix[t]!=='keep')).length,suggest:tagSuggestions(tokens,liveMapping)};
 };
 // Disable the demonstration's synthetic host, installation, and scan timers in live mode.
 ensureTicker=function(){};
@@ -151,7 +151,8 @@ restorePage=function(){
   if(state.restoreInput.trim()){
     const r=restoreInfo(state),partial=r.kept.length>0;
     const save=partial?'保存部分还原版':'保存真名版',status=r.missing.length?'':partial?`部分还原，${r.kept.length} 个代号保留`:`已还原 ${r.replaced} 处`;
-    const primary=r.missing.length?act({cls:'todo',a:'next-miss',title:'下一处没有映射的代号',inner:`<b>${r.missing.length}</b><span class="lbl">个代号没有映射</span>${icon('next',14)}`,key:'missing'+r.missing.length}):act({cls:'save',a:'save-restored',title:save,inner:`${icon('down',15)}<span class="lbl">${save}</span>`,disabled:liveBusy,key:'save'});
+    const fixable=r.missing.filter(t=>r.suggest[t]).length;
+    const primary=(fixable?`<button class="isl-btn" data-a="accept-suggest" title="把形状被改动的代号按格式还原后的代号处理">${icon('check',15)}<span class="lbl">采用 ${fixable} 个格式建议</span></button>`:'')+(r.missing.length?act({cls:'todo',a:'next-miss',title:'下一处没有映射的代号',inner:`<b>${r.missing.length}</b><span class="lbl">个代号没有映射</span>${icon('next',14)}`,key:'missing'+r.missing.length}):act({cls:'save',a:'save-restored',title:save,inner:`${icon('down',15)}<span class="lbl">${save}</span>`,disabled:liveBusy,key:'save'}));
     return bar({title:'AI 结果',island:restoreIsland(status,primary)})+`<main class="canvas" id="canvas" data-k="p-restore">${restorePaper(r)}</main>`;
   }
   return bar({title:'还原结果'})+`<main class="center" data-k="p-restore-input"><h1 class="ask">还原 AI 结果中的代号</h1><p class="quiet">使用本项目已保存的映射，真名版只保存到本机</p><button class="cta" data-a="restore-file">打开 TXT / Markdown 结果文件</button></main>`+dock('restore',`<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴含代号的文本"></textarea></label>`);
@@ -216,6 +217,7 @@ Object.assign(ACTIONS,{
   'restore-open':()=>{state.page='restore';state.view='bench';render();},
   'clear-restore':()=>{state.restoreInput='';state.restoreFix={};state.page='restore';state.restored=false;render();},
   'restore-file':()=>document.getElementById('result-picker').click(),
+  'accept-suggest':()=>{const r=restoreInfo(state);r.missing.forEach(t=>{if(r.suggest[t])state.restoreFix[t]=r.suggest[t];});state.miss=null;state.restored=false;render();},
   'save-restored':()=>task(async()=>{
     await persist();const result=await api('restore',{text:state.restoreInput,fixes:state.restoreFix,save:true});
     hydrate(await api('project',undefined,'GET'));

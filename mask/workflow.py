@@ -15,6 +15,13 @@ from .documents import read_document, read_docx, export_original, masked_section
 from .official import ROOT, TAG, restore, save_mapping, save_mapping, save_mapping
 
 
+# Official SKILL.md requires explaining the tag format to the cloud model, or it may rewrite tags and break restore.
+TAG_GUIDE = ('本材料已脱敏，敏感信息被替换为 <类型[编号].类型.名称> 形式的代号。\n'
+             '- 类型和编号都相同的代号指同一主体，编号不同即不同主体；名称、名称2、名称3 是同一主体在原文中的不同写法。\n'
+             '- 回答中提到这些主体时，原样使用对应代号：不要翻译、改写、拆分、合并或省略代号，也不要改动其中的尖括号、方括号和点号。\n'
+             '- 不要猜测代号背后的真实信息。')
+
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -242,7 +249,7 @@ class Project:
                 if c['decision'] == 'mask':
                     if c['original'] not in entity['variants']:
                         index = 1
-                        while True:
+                        while True:
                             # Official HaS tag shape <类型[编号].分类.属性>; other spellings of one subject count up 名称2, 名称3.
                             tag = f'<{entity["type"]}[{entity["no"]}].{entity["type"]}.名称{"" if index == 1 else index}>'
                             if tag not in proposed['reserved'] and tag not in proposed['mapping']:
@@ -301,13 +308,14 @@ class Project:
             else:
                 sections = masked_sections(doc, edits)
                 body = '\n\n'.join('## '+s['title']+'\n\n'+'\n\n'.join(s['paragraphs']) for s in sections)
-                target.write_text(f'# 材料 {i}\n\n'+body, encoding='utf-8', newline='')
+                guide = '\n'.join('> ' + line for line in TAG_GUIDE.split('\n'))
+                target.write_text(f'# 材料 {i}\n\n{guide}\n\n'+body, encoding='utf-8', newline='')
             outputs.append({'id': uuid.uuid4().hex, 'name': target.name, 'path': str(target)})
         archive = folder / ('脱敏材料.部分处理.zip' if partial else '脱敏材料.zip')
         with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
             for item in outputs:
                 z.write(item['path'], item['name'])
-            z.writestr('使用说明.txt', '代号格式为 <类别[编号].类别.名称>，同主体不同写法使用 名称2 等后缀。分析时请原样保留代号，不猜测真名。\n'
+            z.writestr('使用说明.txt', TAG_GUIDE + '\n'
                        + ('部分处理：' + '；'.join(f'材料{i}：'+ '；'.join(d['issues']) for i, d in enumerate(self.state['documents'], 1) if d['issues']) if partial else ''))
         outputs.append({'id': batch_id, 'name': archive.name, 'path': str(archive)})
         self.state['outputs'].extend(outputs)

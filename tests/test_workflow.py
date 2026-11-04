@@ -90,6 +90,12 @@ def test_review_overlap_stale_source_and_unknown_tags(tmp_path):
     with pytest.raises(ValueError, match='缺失代号'):
         project.restore_result('<公司[999].公司.名称>', {}, save=True)
     assert project.restore_result('<公司[999].公司.名称>', {'<公司[999].公司.名称>': 'keep'}, save=True)['partial']
+    # Tags an AI rewrote are reported with the official shape as a suggestion, never replaced silently.
+    rewritten = '＜人名［1］．人名．名称＞与\\<人名[1].人名.名称\\>，见〈附件〉'
+    result = project.restore_result(rewritten, {})
+    assert result['text'] == rewritten and result['missing'] == sorted(result['suggest'])
+    assert result['suggest'] == {'＜人名［1］．人名．名称＞': '<人名[1].人名.名称>', '\\<人名[1].人名.名称\\>': '<人名[1].人名.名称>'}
+    assert project.restore_result('＜人名［1］．人名．名称＞', {'＜人名［1］．人名．名称＞': '<人名[1].人名.名称>'})['text'] == '张三'
     # Original text can itself contain a tag: never cascade replacements.
     assert restore('<人名[1].人名.名称>', {'<人名[1].人名.名称>':'<公司[2].公司.名称>', '<公司[2].公司.名称>':'错误'})['text'] == '<公司[2].公司.名称>'
 
@@ -184,6 +190,9 @@ def test_real_model_api_roundtrip(tmp_path):
             assert response.status_code == 200, response.text
             for file in response.json()['files']:
                 assert client.get('/api/download/'+file['id']).status_code == 200
+                if file['name'].endswith('.md'):
+                    # The tag guide's example is not a tag, so a pasted-back export restores without missing tags.
+                    assert not restore(Path(file['path']).read_text(encoding='utf-8'), project.state['mapping'])['missing']
         response = client.post('/api/restore',json={'text':'<人名[1].人名.名称>电话<电话[1].电话.名称>','save':True})
         assert response.status_code == 200, response.text
         assert response.json()['text'] == '张三电话13800138000'
