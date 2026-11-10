@@ -3,6 +3,8 @@ let liveRevision=0,liveMapping={},liveFiles=[],liveBusy=false,liveError='',liveR
 let editVersion=0,savedVersion=0,saveTimer=null,savingPromise=null;
 // An imported mapping file replaces the project mapping for restore only; it is never merged into the project.
 let liveRestoreMapping=null;
+// Workbench opened by a host skill: exporting Markdown hands it to the workspace.
+let liveHost=false,liveCatalog=[],liveScope=null;
 const restoreMapping=()=>liveRestoreMapping?Object.fromEntries(Object.entries(liveRestoreMapping.mapping).map(([t,v])=>[t,v[0]])):liveMapping;
 const pendingUploads=new Map();
 const protoDispatch=dispatch,protoToken=token,protoMoreMenu=moreMenu;
@@ -29,12 +31,13 @@ function hydrate(project){
   // Imports, scans and removals replace documents wholesale; earlier snapshots no longer apply.
   undoStack.length=0;redoStack.length=0;
   liveRevision=project.revision;liveMapping=project.mapping;liveOutputs=project.outputs;
+  liveHost=project.host;liveCatalog=project.catalog;CATEGORIES.length=0;CATEGORIES.push(...project.categories);
   state.entities=project.entities;
   const selectedId=state.documents[state.current]?.id;
   templates.length=0;COMPILED.length=0;
   state.documents=project.documents.map((d,i)=>{
     d.sections.forEach(sec=>{if(sec.breaks)sec.breaks=sec.breaks.map(([p,o])=>[p,cpToJs(sec.paragraphs[p],o)]);});
-    templates.push({title:`材料 ${i+1}`});COMPILED.push({sections:d.sections});
+    templates.push({title:`材料 ${d.no}`});COMPILED.push({sections:d.sections});
     d.candidates=d.candidates.map(c=>{const text=d.sections[c.s].paragraphs[c.p];return {...c,start:cpToJs(text,c.start),end:cpToJs(text,c.end)};});
     return {...d,template:i,scan:d.status==='review'?100:0,notice:d.issues.join('；'),custom:false};
   });
@@ -95,6 +98,7 @@ bar=function({title='',tools='',island=''}={}){
 };
 islandExtras=function(){return `<button class="isl-btn" data-a="restore-open" title="还原 AI 结果中的代号">${icon('down',16)}<span class="lbl">还原</span></button>`;};
 tile=function(f){
+  if(f.unsupported)return `<button class="tile off" data-k="${f.key}" disabled title="${esc(f.name)}"><span class="slot">${mini(null,2.08)}</span><span class="nm">${esc(f.name)}</span><span class="sub">先另存为 .docx</span></button>`;
   const doc=state.documents.find(d=>d.id===f.docId);
   return `<button class="tile ${f.checked?'on':''}" data-k="${f.key}" data-a="${doc?'open-existing':'toggle'}" data-v="${f.key}" title="${esc(f.name)}" aria-pressed="${!!f.checked}"><span class="slot">${mini(doc?{template:doc.template,doc}:null,2.08)}<span class="tick">${icon('check',13)}</span></span><span class="nm">${esc(f.name)}</span><span class="sub">${doc?doc.status==='failed'?'识别失败':doc.status==='review'?'继续核对':'待识别':f.local?'工作目录':'待导入'}</span></button>`;
 };
@@ -102,16 +106,16 @@ selectPage=function(){
   const n=state.dir.filter(f=>f.checked&&!f.docId).length+state.documents.filter(d=>d.status!=='review').length;
   const start=n?`<button class="cta hot" data-a="start-scan" ${liveBusy?'disabled':''}>${icon('right',18)}开始识别 ${n} 份</button>`:'';
   const resume=state.documents.length?`<button class="cta ${n?'soft':''}" data-a="review-open">继续核对已有材料</button>`:'';
-  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">选择需要脱敏的材料</h1><p class="quiet">TXT · Word（.docx）· 原生 PDF<br>原文与映射只在本机处理</p><div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${start||resume?`<div class="ctas">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}</main>`;
+  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">选择需要脱敏的材料</h1><p class="quiet">TXT · Word（.docx）· 原生 PDF<br>原文与映射只在本机处理</p>${scopeLine()}<div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${start||resume?`<div class="ctas">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}</main>`;
 };
 reviewGo=function(){
   const c=counts(state),bad=state.documents.filter(d=>d.status==='failed'),clash=conflicts().length;
   if(liveBusy)return act({cls:'busy',title:'本地处理中',inner:'<i class="spin"></i><span class="lbl">处理中</span>',key:'busy'});
   if(bad.length)return act({cls:'todo',a:'start-scan',title:'重试失败的识别',inner:`${icon('right',15)}<span class="lbl">重试识别</span>`,key:'retry'});
-  if(c.scanning)return act({cls:'next',a:'start-scan',title:'识别剩余材料',inner:`${icon('right',15)}<span class="lbl">识别剩余材料</span>`,key:'scan'});
+  if(c.scanning){const again=state.documents.some(d=>d.status!=='review'&&d.candidates.length)?'重新识别':'识别剩余材料';return act({cls:'next',a:'start-scan',title:again+'，已做的决定保留',inner:`${icon('right',15)}<span class="lbl">${again}</span>`,key:'scan'});}
   if(c.pending)return act({cls:'todo',a:'next',title:`下一处待确认，还剩 ${c.pending} 处（J）`,inner:`<b>${c.pending}</b><span class="lbl">处待确认</span>${icon('next',14)}`,key:'n'+c.pending});
   if(clash)return act({cls:'todo',a:'conflict',title:'处理重叠范围',inner:`<b>${clash}</b><span class="lbl">处范围重叠</span>${icon('next',14)}`,key:'conflict'+clash});
-  return act({cls:'ready',a:'release',title:'导出脱敏 Markdown',inner:`${icon('up',15)}<span class="lbl">导出脱敏稿</span>`,key:'export'});
+  return act({cls:'ready',a:'release',title:liveHost?'把脱敏稿交给 AI':'导出脱敏 Markdown',inner:`${icon('up',15)}<span class="lbl">${liveHost?'交给 AI':'导出脱敏稿'}</span>`,key:'export'});
 };
 paraHtml=function(d,si,pi,hits,cur,from=0,to){
   const text=COMPILED[d.template].sections[si].paragraphs[pi],here=hits.filter(h=>h.s===si&&h.p===pi);
@@ -137,12 +141,12 @@ paper=function(d,hits){
   const sheets=sheetsOf(d),c=d.candidates.find(c=>c.id===state.selected),target=state.sel||c;
   const coSheet=target?Math.max(0,sheetOf(sheets,target.s,target.p,target.start)):-1;
   const flags=`${d.notice?`<div class="flag">${esc(d.notice)}；按部分处理导出</div>`:''}${d.error?`<div class="flag" role="alert">识别失败：${esc(d.error)}</div>`:''}${d.status!=='review'?`<div class="flag">${d.status==='failed'?'请修复原因后重试':'尚未完成识别'}</div>`:''}`;
-  const name=ai?'材料 '+(state.current+1):d.name;
+  const name=ai?'材料 '+d.no:d.name;
   return sheets.map((sh,i)=>`<div class="sheet-no" data-k="n${d.id}-${i}">${i?'':esc(name)+' · '}${esc(sh.label)}</div><article class="page ${ai?'ai':''} ${sh.page?'pg':''}" data-k="doc${d.id}-${i}">${i?'':flags}${sh.parts.map(([si,pi,from,to])=>`<p data-s="${si}" data-p="${pi}" data-o="${from}" style="white-space:pre-wrap;overflow-wrap:anywhere">${paraHtml(d,si,pi,here,cur,from,to)}</p>`).join('')}${i===coSheet?calloutFor(d):''}</article>`).join('');
 };
 moreMenu=function(items){
   if(state.page!=='review'&&state.page!=='done')return protoMoreMenu(items);
-  const extra=[['export-mapping','lock','导出映射文件',!Object.keys(liveMapping).length]];
+  const extra=[['scope-open','search','脱敏范围'],['export-mapping','lock','导出映射文件',!Object.keys(liveMapping).length]];
   if(state.page==='review')extra.push(['remove-document','x','移除当前材料']);
   return protoMoreMenu([...items,...extra]);
 };
@@ -164,9 +168,21 @@ restorePage=function(){
 };
 function exportDialog(kind){
   const partial=state.documents.some(d=>d.issues.length),c=counts(state);
-  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="确认导出"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><h2>导出${kind==='original'?'原格式文件':'脱敏 Markdown'}</h2><div class="tally"><span>脱敏 ${c.masked} 处</span><span>保留 ${c.kept} 处</span><span>补录 ${c.manual} 处</span></div>${noticeHtml()}${partial?'<label class="partial-ack"><input type="checkbox" id="partial-ack"> 我已核对以上未处理内容，按部分处理导出</label>':''}<p class="quiet">原文件不会覆盖，映射不包含在下载文件中</p><button class="cta hot" id="confirm" data-a="${kind==='original'?'confirm-export':'confirm-handoff'}" ${liveBusy?'disabled':''}>${icon('down',18)}生成文件</button></section>`;
+  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="确认导出"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><h2>${kind==='original'?'导出原格式文件':liveHost?'交给 AI':'导出脱敏 Markdown'}</h2><div class="tally"><span>脱敏 ${c.masked} 处</span><span>保留 ${c.kept} 处</span><span>补录 ${c.manual} 处</span></div>${noticeHtml()}${partial?'<label class="partial-ack"><input type="checkbox" id="partial-ack"> 我已核对以上未处理内容，按部分处理导出</label>':''}<p class="quiet">${kind==='markdown'&&liveHost?'脱敏稿写入工作目录的 mask-handoff 文件夹，AI 只读这里；原件和映射不会写入':'原文件不会覆盖，映射不包含在下载文件中'}</p><button class="cta hot" id="confirm" data-a="${kind==='original'?'confirm-export':'confirm-handoff'}" ${liveBusy?'disabled':''}>${kind==='markdown'&&liveHost?icon('up',18)+'交给 AI':icon('down',18)+'生成文件'}</button></section>`;
 }
 handoffSheet=function(){return exportDialog('markdown');};
+// 脱敏范围：标准类别默认全开；按需类别默认保留，开启后才识别。
+function scopeLine(){
+  const extra=liveCatalog.filter(g=>g.optional).flatMap(g=>g.categories).filter(c=>CATEGORIES.includes(c)).length;
+  return `<button class="alt" data-a="scope-open">脱敏范围：${CATEGORIES.length-extra} 类${extra?`，另加按需 ${extra} 类`:''} ›</button>`;
+}
+SHEETS.scope=function(){
+  const rescan=state.documents.some(d=>d.status==='review');
+  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="脱敏范围"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><h2>脱敏范围</h2>${liveCatalog.map(g=>{
+    const on=g.categories.filter(c=>liveScope.has(c)).length;
+    return `<div class="scope-group"><div class="scope-head"><b>${esc(g.name)}</b><span>${g.optional?'按需：默认保留，分析案情常要用到':''}</span><button data-a="scope-group" data-v="${esc(g.name)}">${on===g.categories.length?'全不选':'全选'}</button></div><div class="scope-chips">${g.categories.map(c=>`<button class="scope-chip ${liveScope.has(c)?'on':''}" data-a="scope-toggle" data-v="${esc(c)}" aria-pressed="${liveScope.has(c)}">${esc(c)}</button>`).join('')}</div></div>`;
+  }).join('')}<p class="quiet">金额、日期、法院和政府机关始终保留${rescan?'。改动后已识别的材料需要重新识别，已做的决定会保留':''}</p><button class="cta hot" data-a="scope-save" ${liveBusy||!liveScope.size?'disabled':''}>${icon('check',18)}确定</button></section>`;
+};
 exportSheet=function(){return exportDialog('original');};
 addFiles=function(files){
   for(const file of files){
@@ -207,10 +223,10 @@ async function doExport(kind){
   if(partial&&!ack)throw new Error('请先确认未处理内容');
   await persist();liveProgress='正在生成并校验文件';render();
   const result=await api('export',{kind,acknowledge:ack,revision:liveRevision});
-  liveRevision=result.revision;liveFiles=result.files;
+  liveRevision=result.revision;liveFiles=result.handoff?[]:result.files;
   hydrate(await api('project',undefined,'GET'));
   state.sheet='';state.page='done';state.phase='handed';state.restored=false;
-  liveDone={title:'脱敏文件已生成',sub:'可下载后交给 AI；宿主自动接入尚未连接'};
+  liveDone=result.handoff?{title:'已交给 AI',sub:'回到对话，发送“继续”。脱敏稿在 '+result.handoff}:{title:'脱敏文件已生成',sub:kind==='markdown'?'下载后交给 AI；文件开头附有代号说明':'原文件未改动'};
 }
 Object.assign(ACTIONS,{
   home:()=>{state.page='import';state.view='bench';render();},
@@ -246,7 +262,15 @@ Object.assign(ACTIONS,{
     hydrate(await api('documents/'+id+'?revision='+liveRevision,undefined,'DELETE'));
     state.menu=false;state.selected=null;state.page=state.documents.length?'review':'import';
   }),
-  'dismiss-error':()=>{liveError='';render();}
+  'dismiss-error':()=>{liveError='';render();},
+  'scope-open':()=>{liveScope=new Set(CATEGORIES);state.menu=false;dispatch({type:'sheet',value:'scope'});render();},
+  'scope-toggle':t=>{const c=t.dataset.v;liveScope.has(c)?liveScope.delete(c):liveScope.add(c);render();},
+  'scope-group':t=>{const g=liveCatalog.find(g=>g.name===t.dataset.v),all=g.categories.every(c=>liveScope.has(c));g.categories.forEach(c=>all?liveScope.delete(c):liveScope.add(c));render();},
+  'scope-save':()=>task(async()=>{
+    await persist();
+    hydrate(await api('scope',{categories:[...liveScope],revision:liveRevision},'PUT'));
+    state.sheet='';
+  })
 });
 const resultPicker=document.createElement('input');resultPicker.type='file';resultPicker.accept='.txt,.md';resultPicker.id='result-picker';resultPicker.hidden=true;document.body.append(resultPicker);
 resultPicker.onchange=()=>task(async()=>{
@@ -268,6 +292,10 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
   .live-error p{white-space:pre-line;margin:8px 0;max-height:35vh;overflow:auto}.live-error button{padding:6px 12px;border:1px solid var(--line);border-radius:8px;margin:6px 6px 0 0}
   .downloads{display:grid;gap:12px;max-height:40vh;overflow:auto;margin:24px auto}.download{color:var(--ink);display:flex;align-items:center;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;text-decoration:none}
   .alt{display:block;margin:16px auto 0;color:var(--ink2);font-size:13px;text-decoration:underline;text-underline-offset:3px}
+  .tile.off{opacity:.45;cursor:default}
+  .scope-group{display:grid;gap:8px}.scope-head{display:flex;align-items:baseline;gap:8px;font-size:13px}.scope-head b{font-weight:600}.scope-head span{flex:1;color:var(--ink2);font-size:12px}.scope-head button{color:var(--ink2);font-size:12px;text-decoration:underline;text-underline-offset:3px}
+  .scope-chips{display:flex;flex-wrap:wrap;gap:6px}.scope-chip{padding:5px 12px;border-radius:10px;background:var(--fill);color:var(--ink2);font-size:13px;transition:background-color .15s,color .15s}.scope-chip.on{background:var(--pill);color:var(--pill-fg)}
+  .modal .quiet{margin-top:0}
   .partial-ack{display:flex;gap:8px;margin:16px 0;align-items:flex-start}.modal h2{margin:22px 0 14px}.quiet{line-height:1.7}.tiles{max-height:45vh;overflow:auto}
 `;document.head.append(liveStyle);
 (async()=>{
@@ -281,7 +309,7 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
     }
     hydrate(await api('project',undefined,'GET'));
     const local=await api('workspace',undefined,'GET');
-    state.dir.push(...local.filter(f=>!state.dir.some(x=>x.name===f.name)).map(f=>({key:crypto.randomUUID(),name:f.name,local:true,checked:true,format:f.name.split('.').pop().toUpperCase()})));
+    state.dir.push(...local.filter(f=>!state.dir.some(x=>x.name===f.name)).map(f=>({key:crypto.randomUUID(),name:f.name,local:true,checked:f.supported,unsupported:!f.supported,format:f.name.split('.').pop().toUpperCase()})));
     if(state.documents.length){state.page='review';selectFirst(state);}
     render();
   }catch(error){fail(error);}

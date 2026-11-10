@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "\"<MASK>/mask.cmd\" guard hook"}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Read|Edit|Write|Grep|Glob|Bash|NotebookEdit", "hooks": [{"type": "command", "command": "\"<MASK>/mask.cmd\" guard hook"}]}
+    ]
+  }
+}

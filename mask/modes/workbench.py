@@ -1,18 +1,27 @@
+"""Workbench mode: the local browser application for importing, reviewing, exporting and restoring.
+
+`host=True` is the same workbench opened from a host skill: exporting Markdown also hands it to the workspace.
+"""
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import json
+import os
 from pathlib import Path
 import secrets
+import socket
 import threading
+import webbrowser
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
+import uvicorn
 
-from .documents import decode_text
-from .official import ROOT, Recognizer, normalize_mapping_dict
-from .workflow import Project
+from .. import store
+from ..documents import decode_text
+from ..official import ROOT, Recognizer, normalize_mapping_dict
+from ..project import Project
 
 
 class Review(BaseModel):
@@ -27,6 +36,11 @@ class Export(BaseModel):
     revision: int
 
 
+class Scope(BaseModel):
+    categories: list[str]
+    revision: int
+
+
 class Restore(BaseModel):
     text: str
     fixes: dict[str, str] = {}
@@ -35,11 +49,11 @@ class Restore(BaseModel):
     mapping: dict | None = None
 
 
-def create_app(project: Project, launch_token: str):
+def create_app(project: Project, launch_token: str, host: bool = False, control_key: str | None = None):
     model = Recognizer(project.directory)
     lock = threading.RLock()
     cookie = secrets.token_urlsafe(32)
-    unused_launch_token = launch_token
+    launch_tokens = {launch_token}
 
     @asynccontextmanager
     async def lifespan(app):
@@ -47,6 +61,9 @@ def create_app(project: Project, launch_token: str):
         model.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+    def public():
+        return {**project.public(), 'host': host}
 
     @app.middleware('http')
     async def local_only(request: Request, call_next):
@@ -78,14 +95,24 @@ def create_app(project: Project, launch_token: str):
 
     @app.post('/session')
     def session(request: Request):
-        nonlocal unused_launch_token
         token = request.headers.get('x-launch-token', '')
-        if not unused_launch_token or not secrets.compare_digest(token, unused_launch_token):
+        if token not in launch_tokens:
             return JSONResponse({'error': '启动链接已使用或无效'}, status_code=403)
-        unused_launch_token = None
+        launch_tokens.discard(token)
         response = JSONResponse({'ok': True})
         response.set_cookie('mask_session', cookie, httponly=True, samesite='strict')
         return response
+
+    @app.post('/control/open')
+    def reopen(request: Request):
+        # The skill command asks a running workbench to open itself again. The one-time link goes
+        # straight to the browser, so it never appears in the host conversation.
+        if not control_key or not secrets.compare_digest(request.headers.get('x-mask-control', ''), control_key):
+            return JSONResponse({'error': '无效的控制请求'}, status_code=403)
+        token = secrets.token_urlsafe(32)
+        launch_tokens.add(token)
+        webbrowser.open(f'{str(request.base_url)}#{token}')
+        return {'ok': True}
 
     @app.get('/')
     def index():
@@ -100,13 +127,14 @@ def create_app(project: Project, launch_token: str):
     @app.get('/api/project')
     def state():
         with lock:
-            return project.public()
+            return public()
 
     @app.get('/api/workspace')
     def workspace():
         # ~$ files are Office owner locks created while a document is open, not materials.
-        return [{'name': p.name} for p in sorted(project.workspace.iterdir())
-                if p.is_file() and p.suffix.lower() in {'.txt', '.docx', '.pdf'} and not p.name.startswith('~$')]
+        return [{'name': p.name, 'supported': p.suffix.lower() in {'.txt', '.docx', '.pdf'}}
+                for p in sorted(project.workspace.iterdir())
+                if p.is_file() and p.suffix.lower() in {'.txt', '.docx', '.pdf', '.doc'} and not p.name.startswith('~$')]
 
     @app.post('/api/import-local')
     def import_local(body: dict):
@@ -118,20 +146,25 @@ def create_app(project: Project, launch_token: str):
             raise ValueError('文件不在当前工作目录')
         with lock:
             project.add(name, path.read_bytes(), path)
-            return project.public()
+            return public()
 
     @app.post('/api/upload')
     def upload(file: UploadFile = File(...)):
         with lock:
             project.add(file.filename or '', file.file.read())
-            return project.public()
+            return public()
+
+    @app.put('/api/scope')
+    def scope(body: Scope):
+        with lock:
+            project.check_revision(body.revision)
+            project.set_scope(body.categories)
+            return public()
 
     @app.post('/api/scan/{identity}')
     def scan(identity: str):
         with lock:
-            doc = next((d for d in project.state['documents'] if d['id'] == identity), None)
-            if not doc:
-                raise ValueError('材料不存在')
+            doc = project.document(identity)
             doc.update(status='scanning', error='')
             project.save()
             try:
@@ -139,42 +172,26 @@ def create_app(project: Project, launch_token: str):
             except Exception as exc:
                 doc.update(status='failed', error=f'{type(exc).__name__}: {exc}', handed=False)
             project.save()
-            return project.public()
+            return public()
 
     @app.put('/api/review')
     def review(body: Review):
         with lock:
             project.review(body.model_dump())
-            return project.public()
+            return public()
 
     @app.delete('/api/documents/{identity}')
     def remove_document(identity: str, revision: int):
         with lock:
             project.check_revision(revision)
-            if not any(d['id'] == identity for d in project.state['documents']):
-                raise ValueError('材料不存在')
-            project.state['documents'] = [d for d in project.state['documents'] if d['id'] != identity]
-            # Historical mappings remain valid for AI results produced before removal.
-            project.save()
-            return project.public()
+            project.remove(identity)
+            return public()
 
     @app.post('/api/export')
     def export(body: Export):
         with lock:
             project.check_revision(body.revision)
-            return project.export(body.kind, body.acknowledge)
-
-    @app.post('/api/export-mapping')
-    def export_mapping(body: dict):
-        with lock:
-            project.check_revision(body.get('revision'))
-            return project.export_mapping()
-
-    @app.post('/api/export-mapping')
-    def export_mapping(body: dict):
-        with lock:
-            project.check_revision(body.get('revision'))
-            return project.export_mapping()
+            return project.export(body.kind, body.acknowledge, handoff=host and body.kind == 'markdown')
 
     @app.post('/api/export-mapping')
     def export_mapping(body: dict):
@@ -215,3 +232,34 @@ def create_app(project: Project, launch_token: str):
             return FileResponse(item['path'], filename=item['name'])
 
     return app
+
+
+def run(workspace: Path, port: int = 0, browser: bool = True, host: bool = False):
+    project = Project(workspace)
+    # One writer per project; another terminal must not overwrite persisted review state.
+    guard = (project.directory / 'process.lock').open('a+b')
+    if os.name == 'nt':
+        import msvcrt
+        guard.seek(0); guard.write(b'0'); guard.flush(); guard.seek(0)
+        try:
+            msvcrt.locking(guard.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as exc:
+            raise SystemExit('这个项目的工作台已经运行，请使用原来的窗口') from exc
+    token, control_key = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    control = project.directory / 'control.mask'
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', port))
+        port = sock.getsockname()[1]
+        url = f'http://127.0.0.1:{port}/#{token}'
+        print(f'Mask: {url}', flush=True)
+        print(f'项目数据（仅本机）: {project.directory}', flush=True)
+        store.write(control, {'port': port, 'key': control_key})
+        if browser:
+            # Open after uvicorn starts listening on the bound socket.
+            threading.Timer(1, lambda: webbrowser.open(url)).start()
+        app = create_app(project, token, host, control_key)
+        try:
+            uvicorn.Server(uvicorn.Config(app, log_level='warning', access_log=False)).run(sockets=[sock])
+        finally:
+            control.unlink(missing_ok=True)
+    guard.close()

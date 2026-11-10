@@ -13,9 +13,9 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).parent))
 from fixtures import make_files, LINES
 from mask.documents import read_document, masked_sections
-from mask.official import restore
-from mask.server import create_app
-from mask.workflow import Project
+from mask.modes.workbench import create_app
+from mask.project import Project
+from mask.vault import restore
 
 
 class KnownCandidates:
@@ -48,11 +48,11 @@ def test_three_formats_preserve_content_and_restore(tmp_path):
         assert all(value in text for value in ['10000元', '2026年10月30日', '北京市朝阳区人民法院'])
         for si, section in enumerate(masked_sections(doc, [c for c in doc['candidates'] if c['decision'] == 'mask'])):
             for pi, paragraph in enumerate(section['paragraphs']):
-                restored = restore(paragraph, project.state['mapping'])
+                restored = restore(paragraph, project.vault.mapping)
                 assert not restored['partial']
                 assert restored['text'] == doc['sections'][si]['paragraphs'][pi]
         if doc['format'] == 'TXT':
-            assert restore(Path(output['path']).read_bytes().decode(), project.state['mapping'])['text'] == Path(doc['source']).read_bytes().decode()
+            assert restore(Path(output['path']).read_bytes().decode(), project.vault.mapping)['text'] == Path(doc['source']).read_bytes().decode()
         if doc['format'] == 'DOCX':
             word = Document(output['path'])
             assert word.paragraphs[0].runs[0].bold
@@ -64,9 +64,9 @@ def test_three_formats_preserve_content_and_restore(tmp_path):
                 assert pdf[0].get_drawings()
                 pdf[0].get_pixmap().save(tmp_path / 'pdf-export.png')
     reloaded = Project(tmp_path, project.directory)
-    assert reloaded.state['mapping'] == project.state['mapping']
+    assert reloaded.vault.mapping == project.vault.mapping
     assert reloaded.state['documents'][0]['candidates'] == project.state['documents'][0]['candidates']
-    assert {v for v in reloaded.state['mapping'].values()} == {'星河示例科技有限公司', '张三', '13800138000'}
+    assert {v for v in reloaded.vault.mapping.values()} == {'星河示例科技有限公司', '张三', '13800138000'}
 
 
 def test_review_overlap_stale_source_and_unknown_tags(tmp_path):
@@ -138,7 +138,7 @@ def test_alias_identity_literal_tags_and_stable_history(tmp_path):
         else:
             c['decision'] = 'mask'; c['entity'] = full['entity']
     project.review(payload)
-    before = deepcopy(project.state['mapping'])
+    before = deepcopy(project.vault.mapping)
     assert '<公司[1].公司.名称>' not in before
     assert set(before.values()) == {'星河示例科技有限公司', '星河'}
     result = project.export('original')
@@ -147,7 +147,7 @@ def test_alias_identity_literal_tags_and_stable_history(tmp_path):
     payload = project.public()
     payload['documents'][0]['candidates'][0]['decision'] = 'keep'
     project.review(payload)
-    assert project.state['mapping'] == before
+    assert project.vault.mapping == before
 
 
 def test_rotated_pdf_keeps_page_orientation(tmp_path):
@@ -193,19 +193,19 @@ def test_real_model_api_roundtrip(tmp_path):
                 assert client.get('/api/download/'+file['id']).status_code == 200
                 if file['name'].endswith('.md'):
                     # The tag guide's example is not a tag, so a pasted-back export restores without missing tags.
-                    assert not restore(Path(file['path']).read_text(encoding='utf-8'), project.state['mapping'])['missing']
+                    assert not restore(Path(file['path']).read_text(encoding='utf-8'), project.vault.mapping)['missing']
         response = client.post('/api/restore',json={'text':'<人名[1].人名.名称>电话<电话[1].电话.名称>','save':True})
         assert response.status_code == 200, response.text
         assert response.json()['text'] == '张三电话13800138000'
         # A mapping file from another project restores this text only; the project mapping is unchanged.
-        before = deepcopy(project.state['mapping'])
+        before = deepcopy(project.vault.mapping)
         upload = json.dumps({'mapping': {'<人名[1].人名.名称>': ['李四', '小李']}}, ensure_ascii=False).encode()
         response = client.post('/api/read-mapping', files={'file': ('other.mapping.json', upload)})
         assert response.status_code == 200, response.text
         imported = response.json()['mapping']
         response = client.post('/api/restore', json={'text': '<人名[1].人名.名称>电话<电话[1].电话.名称>', 'mapping': imported})
         assert response.json()['text'] == '李四电话<电话[1].电话.名称>' and response.json()['missing'] == ['<电话[1].电话.名称>']
-        assert project.state['mapping'] == before
+        assert project.vault.mapping == before
         for name, data in [('bad.json', b'{"not-a-tag": ["x"]}'), ('bad.json', b'{'), ('map.txt', upload)]:
             assert client.post('/api/read-mapping', files={'file': (name, data)}).status_code == 400
 
@@ -226,11 +226,11 @@ def test_company_spellings_generic_alias_and_unissued_tags(tmp_path):
     for c in payload['documents'][0]['candidates']:
         c['decision'] = 'mask'
     project.review(payload)
-    trial = set(project.state['mapping'])
+    trial = set(project.vault.mapping)
     payload = project.public()
     payload['documents'][0]['candidates'][0]['decision'] = 'keep'
     project.review(payload)
-    assert len(project.state['mapping']) == len(trial) - 1
+    assert len(project.vault.mapping) == len(trial) - 1
     payload = project.public()
     for c in payload['documents'][0]['candidates']:
         c['decision'] = 'mask'
@@ -239,7 +239,7 @@ def test_company_spellings_generic_alias_and_unissued_tags(tmp_path):
     payload = project.public()
     payload['documents'][0]['candidates'][0]['decision'] = 'keep'
     project.review(payload)
-    assert set(project.state['mapping']) == trial
+    assert set(project.vault.mapping) == trial
     # The mapping file must round-trip through the unmodified official loader and deterministic seek.
     from has_text.mapping import load_mapping
     from has_text.commands.seek import restore_without_model

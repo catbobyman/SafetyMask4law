@@ -4,13 +4,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import re
 import secrets
 import socket
 import subprocess
 import sys
 import time
-import unicodedata
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / 'vendor/skills/has-anonymizer'
@@ -83,38 +81,3 @@ class Recognizer:
             self.process.wait(timeout=15)
         if self.log:
             self.log.close()
-
-
-# Tag-like text an AI may have rewritten: full-width or escaped brackets, other dots, inserted spaces.
-LOOSE = re.compile(r'(?:&lt;|\\?[<＜〈])[^<>＜＞〈〉]{1,80}?(?:&gt;|\\?[>＞〉])')
-FOLD = str.maketrans('【】〈〉。', '[]<>.')
-
-
-def tag_shape(text):
-    return re.sub(r'[\s\\]', '', unicodedata.normalize('NFKC', text.replace('&lt;', '<').replace('&gt;', '>'))).translate(FOLD)
-
-
-def restore(text, mapping, fixes=None):
-    fixes = fixes or {}
-    missing, kept, suggest = set(), set(), {}
-    def one(match):
-        tag = match.group()
-        if tag in mapping:
-            return _tool_seek(tag, {tag: [mapping[tag]]})
-        shape = tag_shape(tag)
-        if not TAG.fullmatch(shape):
-            return tag
-        # A rewritten tag is never replaced silently; its official shape is only offered as a suggestion.
-        if shape in mapping:
-            suggest[tag] = shape
-        target = fixes.get(tag)
-        if target == 'keep':
-            kept.add(tag)
-        elif target in mapping:
-            return _tool_seek(tag, {tag: [mapping[target]]})
-        else:
-            missing.add(tag)
-        return tag
-    result = LOOSE.sub(one, text)
-    return {'text': result, 'missing': sorted(missing), 'kept': sorted(kept), 'suggest': suggest,
-            'partial': bool(missing or kept)}

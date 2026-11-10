@@ -1078,7 +1078,7 @@ function reviewPage(){
   const d=state.documents[state.current],hits=searchHits(state),q=state.search.trim(),missed=hits.filter(h=>!h.marked).length,ai=state.preview==='masked';
   const find=q?`<span class="isl-n">${hits.length?(state.hit>=0?`${state.hit+1}/${hits.length}`:`${hits.length} 处`):'无结果'}</span>${hits.length?`<button class="icon" data-a="hit" data-v="-1" aria-label="上一处" title="上一处">${icon('back',14)}</button><button class="icon" data-a="hit" data-v="1" aria-label="下一处" title="下一处（回车）">${icon('next',14)}</button>`:''}${missed?`<button class="isl-add" data-a="add-hits" title="把 ${missed} 处未遮住的结果全部遮住">遮住 ${missed}</button>`:''}`:'';
   const island=`<div class="island" data-k="island" role="toolbar" aria-label="核对工具">${viewSeg('原文','脱敏后',['原文：核对真名和标注','脱敏后：AI 收到的内容'])}<span class="sep"></span><div class="isl-find ${q?'has':''}"><label>${icon('search',15)}<input id="search" type="search" aria-label="查找全部材料" placeholder="查找" value="${esc(state.search)}"></label>${find}</div><span class="sep"></span><button class="isl-btn ${state.inspector?'on':''}" data-a="inspector" title="实体与代号：按主体批量处理" aria-pressed="${state.inspector}">${icon('panel',16)}<span class="lbl">实体</span></button>${islandExtras()}${moreMenu([['mask-all','lock','全部遮住待确认',!maskable(state)],['export','share','导出原格式',!canExport(state)],['add-more','plus','添加材料'],['pause','pause','稍后继续']])}${reviewGo()}</div>`;
-  return bar({title:ai?`材料 ${state.current+1}`:d.name,island})
+  return bar({title:ai?`材料 ${d.no??state.current+1}`:d.name,island})
     +board()+`<main class="canvas" id="canvas" data-k="p-review">${paper(d,hits)}</main>`+rail(hits)+inspector()+toolsBar();
 }
 function donePage(){
@@ -1128,6 +1128,7 @@ function noticeHtml(){
   const notices=state.documents.filter(d=>d.notice);
   return notices.length?`<div class="warn">${icon('info',16)}<span>${notices.map(d=>`${esc(d.name)}：${esc(d.notice)}`).join('<br>')}，按部分处理记录</span></div>`:'';
 }
+const SHEETS={handoff:()=>handoffSheet(),export:()=>exportSheet()};
 function handoffSheet(){
   const byType={},c=counts(state),docs=state.documents.filter(d=>!d.handed),h=esc(state.host);
   maskedCands(state).forEach(x=>{const t=state.entities[x.c.entity].type;byType[t]=(byType[t]||0)+1;});
@@ -1157,7 +1158,7 @@ function placeCallout(){
 function render(){
   const b=document.body;b.dataset.view=state.view;b.dataset.sheet=state.sheet?'1':'';
   b.dataset.tool=state.view==='bench'&&state.page==='review'&&state.preview==='original'?state.tool:'';
-  patch($('chat'),chatView());patch($('bench'),benchView());patch($('overlay'),state.sheet==='handoff'?handoffSheet():state.sheet==='export'?exportSheet():'');patch($('proto'),protoView());
+  patch($('chat'),chatView());patch($('bench'),benchView());patch($('overlay'),SHEETS[state.sheet]?.()||'');patch($('proto'),protoView());
   $('chat').inert=state.view!=='chat';$('bench').inert=state.view!=='bench'||!!state.sheet;
   placeCallout();
   if(state.chat.length!==lastChatLength){lastChatLength=state.chat.length;const th=$('thread');if(th)th.scrollTop=th.scrollHeight;}
