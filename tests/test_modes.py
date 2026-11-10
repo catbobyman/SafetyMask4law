@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 
 from mask.categories import all_categories, default_categories, pattern_hits
 from mask.modes import guard
+from mask.modes.workbench import create_app
 from mask.project import Project
 
 ID = '11010519491231002X'
@@ -60,6 +61,24 @@ def test_patterns_scope_rescan_and_sealed_files(tmp_path, monkeypatch):
     assert project.vault.mapping == before
     reloaded = Project(project.workspace, project.directory)
     assert reloaded.vault.mapping == before and reloaded.categories == project.categories
+
+
+def test_saved_default_scope_starts_new_projects(tmp_path, monkeypatch):
+    project = masked_project(tmp_path, monkeypatch)
+    wider = set(default_categories()) | {'出生日期'}
+    with TestClient(create_app(project, 'launch'), base_url='http://127.0.0.1') as client:
+        client.post('/session', headers={'X-Launch-Token': 'launch'})
+        put = lambda categories: client.put('/api/default-scope', headers={'X-Mask': '1'}, json={'categories': categories})
+        assert put([*wider, '不存在的类别']).status_code == 400
+        assert set(put([*wider]).json()['default_scope']) == wider
+        assert set(client.get('/api/project').json()['default_scope']) == wider
+    (tmp_path / 'other').mkdir()
+    assert set(Project(tmp_path / 'other').categories) == wider
+    assert project.categories == default_categories()
+    # A category the rules dropped after the default was saved is ignored instead of failing every new project.
+    (tmp_path / 'private/Mask/default-scope.json').write_text(json.dumps(['已删除的类别', '人名']), encoding='utf-8')
+    (tmp_path / 'third').mkdir()
+    assert Project(tmp_path / 'third').categories == ['人名']
 
 
 def test_legacy_plain_project_is_sealed(tmp_path):

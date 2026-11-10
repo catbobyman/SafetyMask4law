@@ -33,9 +33,36 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def app_dir():
+    return Path(os.environ.get('LOCALAPPDATA', Path.home() / '.local/share')) / 'Mask'
+
+
 def data_dir(workspace: Path):
-    base = Path(os.environ.get('LOCALAPPDATA', Path.home() / '.local/share')) / 'Mask/projects'
-    return base / digest(str(workspace.resolve()).casefold().encode())[:20]
+    return app_dir() / 'projects' / digest(str(workspace.resolve()).casefold().encode())[:20]
+
+
+def known_scope(categories):
+    known = all_categories()
+    if not categories or any(c not in known for c in categories):
+        raise ValueError('未知类别')
+    return [c for c in known if c in categories]
+
+
+def initial_scope():
+    """The scope a new project starts with: the one the user saved as their default, else the standard categories."""
+    file = app_dir() / 'default-scope.json'
+    if not file.exists():
+        return default_categories()
+    saved = json.loads(file.read_text(encoding='utf-8'))
+    # The rules may have dropped categories since it was saved; with none left a project would recognize nothing.
+    return [c for c in all_categories() if c in saved] or default_categories()
+
+
+def save_initial_scope(categories):
+    # Category names only, no originals or mapping, so this file is not sealed.
+    file = app_dir() / 'default-scope.json'
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(json.dumps(known_scope(categories), ensure_ascii=False), encoding='utf-8')
 
 
 def find(path: Path):
@@ -75,7 +102,7 @@ class Project:
             legacy.unlink()
         else:
             self.state = {'revision': 0, 'documents': [], 'outputs': [], 'workspace': str(self.workspace),
-                          'next_no': 1, 'categories': default_categories()}
+                          'next_no': 1, 'categories': initial_scope()}
             self.vault = Vault()
 
     @property
@@ -124,10 +151,7 @@ class Project:
         return doc
 
     def set_scope(self, categories):
-        known = all_categories()
-        if not categories or any(c not in known for c in categories):
-            raise ValueError('未知类别')
-        self.state['categories'] = [c for c in known if c in categories]
+        self.state['categories'] = known_scope(categories)
         for doc in self.state['documents']:
             if doc['scope'] != scope_hash(self.categories) and doc['status'] == 'review':
                 doc.update(status='queued', handed=False)

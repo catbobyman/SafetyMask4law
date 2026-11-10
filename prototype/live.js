@@ -4,7 +4,7 @@ let editVersion=0,savedVersion=0,saveTimer=null,savingPromise=null;
 // An imported mapping file replaces the project mapping for restore only; it is never merged into the project.
 let liveRestoreMapping=null;
 // Workbench opened by a host skill: exporting Markdown hands it to the workspace.
-let liveHost=false,liveCatalog=[],liveScope=null;
+let liveHost=false,liveCatalog=[],liveScope=null,liveDefaultScope=[];
 const restoreMapping=()=>liveRestoreMapping?Object.fromEntries(Object.entries(liveRestoreMapping.mapping).map(([t,v])=>[t,v[0]])):liveMapping;
 const pendingUploads=new Map();
 const protoDispatch=dispatch,protoToken=token,protoMoreMenu=moreMenu;
@@ -31,7 +31,7 @@ function hydrate(project){
   // Imports, scans and removals replace documents wholesale; earlier snapshots no longer apply.
   undoStack.length=0;redoStack.length=0;
   liveRevision=project.revision;liveMapping=project.mapping;liveOutputs=project.outputs;
-  liveHost=project.host;liveCatalog=project.catalog;CATEGORIES.length=0;CATEGORIES.push(...project.categories);
+  liveHost=project.host;liveCatalog=project.catalog;liveDefaultScope=project.default_scope;CATEGORIES.length=0;CATEGORIES.push(...project.categories);
   state.entities=project.entities;
   const selectedId=state.documents[state.current]?.id;
   templates.length=0;COMPILED.length=0;
@@ -178,10 +178,11 @@ function scopeLine(){
 }
 SHEETS.scope=function(){
   const rescan=state.documents.some(d=>d.status==='review');
+  const isDefault=liveScope.size===liveDefaultScope.length&&liveDefaultScope.every(c=>liveScope.has(c));
   return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="脱敏范围"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><h2>脱敏范围</h2>${liveCatalog.map(g=>{
     const on=g.categories.filter(c=>liveScope.has(c)).length;
     return `<div class="scope-group"><div class="scope-head"><b>${esc(g.name)}</b><span>${g.optional?'按需：默认保留，分析案情常要用到':''}</span><button data-a="scope-group" data-v="${esc(g.name)}">${on===g.categories.length?'全不选':'全选'}</button></div><div class="scope-chips">${g.categories.map(c=>`<button class="scope-chip ${liveScope.has(c)?'on':''}" data-a="scope-toggle" data-v="${esc(c)}" aria-pressed="${liveScope.has(c)}">${esc(c)}</button>`).join('')}</div></div>`;
-  }).join('')}<p class="quiet">金额、日期、法院和政府机关始终保留${rescan?'。改动后已识别的材料需要重新识别，已做的决定会保留':''}</p><button class="cta hot" data-a="scope-save" ${liveBusy||!liveScope.size?'disabled':''}>${icon('check',18)}确定</button></section>`;
+  }).join('')}<p class="quiet">金额、日期、法院和政府机关始终保留${rescan?'。改动后已识别的材料需要重新识别，已做的决定会保留':''}</p><button class="cta hot" data-a="scope-save" ${liveBusy||!liveScope.size?'disabled':''}>${icon('check',18)}确定</button><button class="alt" data-a="scope-default" ${isDefault||liveBusy||!liveScope.size?'disabled':''}>${isDefault?'已是新项目的默认范围':'设为新项目的默认范围'}</button></section>`;
 };
 exportSheet=function(){return exportDialog('original');};
 addFiles=function(files){
@@ -270,7 +271,8 @@ Object.assign(ACTIONS,{
     await persist();
     hydrate(await api('scope',{categories:[...liveScope],revision:liveRevision},'PUT'));
     state.sheet='';
-  })
+  }),
+  'scope-default':()=>task(async()=>{liveDefaultScope=(await api('default-scope',{categories:[...liveScope]},'PUT')).default_scope;})
 });
 const resultPicker=document.createElement('input');resultPicker.type='file';resultPicker.accept='.txt,.md';resultPicker.id='result-picker';resultPicker.hidden=true;document.body.append(resultPicker);
 resultPicker.onchange=()=>task(async()=>{
@@ -295,7 +297,7 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
   .tile.off{opacity:.45;cursor:default}
   .scope-group{display:grid;gap:8px}.scope-head{display:flex;align-items:baseline;gap:8px;font-size:13px}.scope-head b{font-weight:600}.scope-head span{flex:1;color:var(--ink2);font-size:12px}.scope-head button{color:var(--ink2);font-size:12px;text-decoration:underline;text-underline-offset:3px}
   .scope-chips{display:flex;flex-wrap:wrap;gap:6px}.scope-chip{padding:5px 12px;border-radius:10px;background:var(--fill);color:var(--ink2);font-size:13px;transition:background-color .15s,color .15s}.scope-chip.on{background:var(--pill);color:var(--pill-fg)}
-  .modal .quiet{margin-top:0}
+  .modal .quiet,.modal .alt{margin-top:0}.alt:disabled{text-decoration:none}
   .partial-ack{display:flex;gap:8px;margin:16px 0;align-items:flex-start}.modal h2{margin:22px 0 14px}.quiet{line-height:1.7}.tiles{max-height:45vh;overflow:auto}
 `;document.head.append(liveStyle);
 (async()=>{

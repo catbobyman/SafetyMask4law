@@ -21,7 +21,7 @@ import uvicorn
 from .. import store
 from ..documents import decode_text
 from ..official import ROOT, Recognizer, normalize_mapping_dict
-from ..project import Project
+from ..project import Project, initial_scope, save_initial_scope
 
 
 class Review(BaseModel):
@@ -36,8 +36,11 @@ class Export(BaseModel):
     revision: int
 
 
-class Scope(BaseModel):
+class Categories(BaseModel):
     categories: list[str]
+
+
+class Scope(Categories):
     revision: int
 
 
@@ -63,7 +66,7 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
     def public():
-        return {**project.public(), 'host': host}
+        return {**project.public(), 'host': host, 'default_scope': initial_scope()}
 
     @app.middleware('http')
     async def local_only(request: Request, call_next):
@@ -160,6 +163,12 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
             project.check_revision(body.revision)
             project.set_scope(body.categories)
             return public()
+
+    @app.put('/api/default-scope')
+    def default_scope(body: Categories):
+        # The scope new projects start with; this project is not changed.
+        save_initial_scope(body.categories)
+        return {'default_scope': initial_scope()}
 
     @app.post('/api/scan/{identity}')
     def scan(identity: str):
