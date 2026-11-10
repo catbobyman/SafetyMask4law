@@ -10,7 +10,7 @@ TXT、DOCX、原生 PDF 的本地脱敏：导入 → 本机 HaS 识别 → 原�
 | Skill | `mask.cmd skill start` / `status` | 宿主（Claude Code、Codex、WorkBuddy）的技能打开工作台，用户点“交给 AI”后宿主读取脱敏稿 |
 | 拦截 | `mask.cmd guard hook` / `proxy` | 拦下或改写宿主发往模型的内容里已脱敏过的真名 |
 
-Skill 和拦截的命令已在本机运行通过，尚未装进真实宿主里调用。
+拦截插件已在本机的 DeepSeek Harness 0.2.1-rc.3（headless）里验证；Skill 尚未在真实宿主里调用，Claude Code、Codex、WorkBuddy 未验证。
 
 ## 启动
 
@@ -31,6 +31,11 @@ python -m mask --workspace "D:\案件材料"
 
 ### 接入宿主
 
+- **DeepSeek Harness（dsh）**：`mask.cmd install dsh` 把技能写入 `~/.dsh/skills/mask/`，并把拦截插件加进 `~/.dsh/cordis.patch.yml`（只增删两行标记之间的内容）；`mask.cmd uninstall dsh` 移除。重启 dsh 后生效。工作台的“接入 Agent”面板（选材料页的链接，或 `⋯ → 接入 Agent`）里每个 Agent 一个开关，开和关就是这两条命令；Codex、Claude Code 目前是占位。dsh 没有命令式 hook，拦截是 `integrations/guard/dsh/index.mjs` 这个插件，它把每次提问和文件、搜索、shell 工具调用交给 `guard hook` 判断。
+- **不经宿主启动工作台时**：主按钮是“交给 Agent”，脱敏稿写入工作目录的 `mask-handoff/`，完成页的“复制给 Agent 的指令”给出文件夹位置和代号用法，粘贴到 Agent 对话里再写需求。
+
+其他宿主需手工接入：
+
 - **Skill**：把 `integrations/skill/mask/` 复制到宿主的技能目录，将 `SKILL.md` 里的 `<MASK>` 换成本项目路径。在宿主对话输入 `/mask`（Codex 为 `$mask`）和需求。工作台的主按钮变为“交给 AI”，脱敏稿写入工作目录的 `mask-handoff/`。
 - **拦截 hook**：把 `integrations/guard/claude-code.settings.example.json` 的内容并入宿主的 hook 配置。对话里出现已脱敏的真名时，这句话不会发出，并提示对应代号；宿主读取已导入的原件时被拒绝。
 - **拦截代理**：`mask.cmd guard proxy --workspace "D:\案件材料" --upstream https://api.anthropic.com`，再把宿主的模型地址指向 `http://127.0.0.1:8788`。请求里已确认过的原文在转发前换成代号。
@@ -48,7 +53,7 @@ python -m mask --workspace "D:\案件材料"
 
 ## 文件与支持范围
 
-- 项目数据位于 `%LOCALAPPDATA%\Mask\projects\<工作目录哈希>\`：映射库 `vault.mask`、材料文字与核对状态 `project.mask`、原文件快照、输出和还原文件。两个 `.mask` 文件按当前 Windows 账户加密（DPAPI），其他账户或拷走的副本打不开；以同一账户运行的程序仍能解密。旧版的明文 `project.json` 在首次打开时自动转换并删除，材料需重新识别一次，已做的决定保留。工作台模式不写入材料工作目录；Skill 模式只写入 `mask-handoff/` 里的脱敏稿。映射不包含在下载 ZIP 和 `mask-handoff/` 中；`⋯ → 导出映射文件` 单独生成官方 `{代号: [原文]}` 结构的 `<目录名>.mapping.json`，可直接用于 `has.sh text restore --mapping`。
+- 项目数据位于 `%LOCALAPPDATA%\Mask\projects\<工作目录哈希>\`：映射库 `vault.mask`、材料文字与核对状态 `project.mask`、原文件快照、输出和还原文件。两个 `.mask` 文件按当前 Windows 账户加密（DPAPI），其他账户或拷走的副本打不开；以同一账户运行的程序仍能解密。旧版的明文 `project.json` 在首次打开时自动转换并删除，材料需重新识别一次，已做的决定保留。写入材料工作目录的只有“交给 Agent / 交给 AI”时放进 `mask-handoff/` 的脱敏稿。映射不包含在下载 ZIP 和 `mask-handoff/` 中；`⋯ → 导出映射文件` 单独生成官方 `{代号: [原文]}` 结构的 `<目录名>.mapping.json`，可直接用于 `has.sh text restore --mapping`。
 - 原件不覆盖。TXT 识别 UTF-8、带 BOM 的 UTF-16 或 GB18030，输出 UTF-8，保持未替换字符及换行。
 - DOCX 修改原包的 XML 文本节点，支持正文、表格、页眉、页脚和跨 run 候选，保留周围格式。核对界面为提取文字视图，按 Word 保存时记录的分页位置（`lastRenderedPageBreak`、分页符、分节符）分成多页，分页点落在候选中间时顺延到候选末尾；页眉、页脚各显示一张。不模拟字体与版面，没有分页记录的文件（如非 Word 生成）显示为一页。
 - PDF 根据原字符坐标真正移除目标文字，再写入代号。移除后校验未选中字符及坐标；代号在原区域内缩小字号，低于 4pt 时明确失败。中文使用 PyMuPDF CJK 字体，该字体缺少的字符回退到 Windows Segoe UI Symbol。核对界面按原 PDF 每页一张纸显示提取文字；下载 PDF 保留页面布局。

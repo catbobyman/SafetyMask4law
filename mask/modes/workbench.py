@@ -22,6 +22,7 @@ from .. import store
 from ..documents import decode_text
 from ..official import ROOT, Recognizer, normalize_mapping_dict
 from ..project import Project, initial_scope, save_initial_scope
+from . import install
 
 
 class Review(BaseModel):
@@ -42,6 +43,10 @@ class Categories(BaseModel):
 
 class Scope(Categories):
     revision: int
+
+
+class Switch(BaseModel):
+    enabled: bool
 
 
 class Restore(BaseModel):
@@ -65,8 +70,12 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
+    def hosts():
+        # Agents the skill and the guard can be switched on for. Machine-wide, not per project.
+        return [{'id': 'dsh', 'enabled': install.installed()}]
+
     def public():
-        return {**project.public(), 'host': host, 'default_scope': initial_scope()}
+        return {**project.public(), 'host': host, 'default_scope': initial_scope(), 'hosts': hosts()}
 
     @app.middleware('http')
     async def local_only(request: Request, call_next):
@@ -170,6 +179,14 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
         save_initial_scope(body.categories)
         return {'default_scope': initial_scope()}
 
+    @app.put('/api/hosts/dsh')
+    def switch_host(body: Switch):
+        try:
+            install.install() if body.enabled else install.uninstall()
+        except SystemExit as exc:
+            raise ValueError(str(exc)) from exc
+        return {'hosts': hosts()}
+
     @app.post('/api/scan/{identity}')
     def scan(identity: str):
         with lock:
@@ -200,7 +217,7 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
     def export(body: Export):
         with lock:
             project.check_revision(body.revision)
-            return project.export(body.kind, body.acknowledge, handoff=host and body.kind == 'markdown')
+            return project.export(body.kind, body.acknowledge, handoff=body.kind == 'markdown')
 
     @app.post('/api/export-mapping')
     def export_mapping(body: dict):

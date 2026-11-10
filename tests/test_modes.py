@@ -81,6 +81,31 @@ def test_saved_default_scope_starts_new_projects(tmp_path, monkeypatch):
     assert Project(tmp_path / 'third').categories == ['人名']
 
 
+installed_block = lambda patch: 'mask-guard' in patch.read_text(encoding='utf-8')
+
+
+def test_dsh_install_touches_only_its_own_block(tmp_path, monkeypatch):
+    from mask.modes import install
+    monkeypatch.setenv('DSH_HOME', str(tmp_path))
+    patch = tmp_path / 'cordis.patch.yml'
+    for mine, emptied in [('# mine\n- id: ui-theme\n  config: {preference: dark}\n', None), ('# shipped\n[]\n', '# shipped\n[]\n'), (None, None)]:
+        patch.write_text(mine, encoding='utf-8') if mine else patch.unlink(missing_ok=True)
+        install.install(); install.install()
+        text = patch.read_text(encoding='utf-8')
+        assert text.count('mask-guard') == 1 and '[]' not in text and '<MASK>' not in (tmp_path / 'skills/mask/SKILL.md').read_text(encoding='utf-8')
+        install.uninstall()
+        assert not (tmp_path / 'skills/mask').exists()
+        # A patch file without rows stops dsh from booting, so the empty layer comes back.
+        assert (patch.read_text(encoding='utf-8') if patch.exists() else None) == (emptied or mine)
+    # The workbench switch is the same install and uninstall.
+    with TestClient(create_app(Project(tmp_path / 'ws', tmp_path / 'data'), 'launch'), base_url='http://127.0.0.1') as client:
+        client.post('/session', headers={'X-Launch-Token': 'launch'})
+        switch = lambda on: client.put('/api/hosts/dsh', headers={'X-Mask': '1'}, json={'enabled': on}).json()
+        assert switch(True) == {'hosts': [{'id': 'dsh', 'enabled': True}]} and installed_block(patch)
+        assert client.get('/api/project').json()['hosts'] == [{'id': 'dsh', 'enabled': True}]
+        assert switch(False) == {'hosts': [{'id': 'dsh', 'enabled': False}]} and not patch.exists()
+
+
 def test_legacy_plain_project_is_sealed(tmp_path):
     folder = tmp_path / 'private'
     folder.mkdir()
@@ -121,6 +146,11 @@ def test_guard_hook_and_proxy(tmp_path, monkeypatch):
     assert read('起诉状.txt')['hookSpecificOutput']['permissionDecision'] == 'deny'
     assert read(str(project.directory / 'vault.mask'))['hookSpecificOutput']['permissionDecision'] == 'deny'
     assert read('mask-handoff/材料1.脱敏.md') is None
+    # Searching the folder that holds the original would return its text; the handoff folder stays searchable.
+    grep = lambda where, **args: guard.hook({'hook_event_name': 'PreToolUse', 'cwd': where, 'tool_name': 'grep', 'tool_input': {'pattern': '原告', **args}})
+    assert grep(cwd)['hookSpecificOutput']['permissionDecision'] == 'deny'
+    assert grep(cwd + '/mask-handoff', path='..')['hookSpecificOutput']['permissionDecision'] == 'deny'
+    assert grep(cwd + '/mask-handoff') is None and grep(cwd, path='mask-handoff') is None
 
     seen = []
     async def upstream(request):

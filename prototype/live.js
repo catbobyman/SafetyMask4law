@@ -1,10 +1,10 @@
 /* Served only by the local application. Reuse the prototype's review gestures and layout. */
-let liveRevision=0,liveMapping={},liveFiles=[],liveBusy=false,liveError='',liveRetry=false,liveProgress='',liveOutputs=[],liveDone={title:'',sub:''};
+let liveRevision=0,liveMapping={},liveFiles=[],liveBusy=false,liveError='',liveRetry=false,liveProgress='',liveOutputs=[],liveDone={title:'',sub:''},liveCopied=false;
 let editVersion=0,savedVersion=0,saveTimer=null,savingPromise=null;
 // An imported mapping file replaces the project mapping for restore only; it is never merged into the project.
 let liveRestoreMapping=null;
 // Workbench opened by a host skill: exporting Markdown hands it to the workspace.
-let liveHost=false,liveCatalog=[],liveScope=null,liveDefaultScope=[];
+let liveHost=false,liveCatalog=[],liveScope=null,liveDefaultScope=[],liveHosts=[];
 const restoreMapping=()=>liveRestoreMapping?Object.fromEntries(Object.entries(liveRestoreMapping.mapping).map(([t,v])=>[t,v[0]])):liveMapping;
 const pendingUploads=new Map();
 const protoDispatch=dispatch,protoToken=token,protoMoreMenu=moreMenu;
@@ -31,7 +31,7 @@ function hydrate(project){
   // Imports, scans and removals replace documents wholesale; earlier snapshots no longer apply.
   undoStack.length=0;redoStack.length=0;
   liveRevision=project.revision;liveMapping=project.mapping;liveOutputs=project.outputs;
-  liveHost=project.host;liveCatalog=project.catalog;liveDefaultScope=project.default_scope;CATEGORIES.length=0;CATEGORIES.push(...project.categories);
+  liveHost=project.host;liveCatalog=project.catalog;liveDefaultScope=project.default_scope;liveHosts=project.hosts;CATEGORIES.length=0;CATEGORIES.push(...project.categories);
   state.entities=project.entities;
   const selectedId=state.documents[state.current]?.id;
   templates.length=0;COMPILED.length=0;
@@ -106,7 +106,10 @@ selectPage=function(){
   const n=state.dir.filter(f=>f.checked&&!f.docId).length+state.documents.filter(d=>d.status!=='review').length;
   const start=n?`<button class="cta hot" data-a="start-scan" ${liveBusy?'disabled':''}>${icon('right',18)}开始识别 ${n} 份</button>`:'';
   const resume=state.documents.length?`<button class="cta ${n?'soft':''}" data-a="review-open">继续核对已有材料</button>`:'';
-  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">选择需要脱敏的材料</h1><p class="quiet">TXT · Word（.docx）· 原生 PDF<br>原文与映射只在本机处理</p>${scopeLine()}<div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${start||resume?`<div class="ctas">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}</main>`;
+  // Opened from an agent or in a material folder, the files are already here: materials first, then the one
+  // action, then the two rarely changed settings as quiet chips.
+  const local=state.dir.filter(f=>f.local&&!f.unsupported).length;
+  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${state.dir.length?'确认需要脱敏的材料':'选择需要脱敏的材料'}</h1><p class="quiet">${local?`已带入工作目录的 ${local} 份`:'TXT · Word（.docx）· 原生 PDF'} · 原文与映射只在本机处理</p><div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${start||resume?`<div class="ctas">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}<div class="opts">${scopeLine()}${hostsLine()}</div></main>`;
 };
 reviewGo=function(){
   const c=counts(state),bad=state.documents.filter(d=>d.status==='failed'),clash=conflicts().length;
@@ -115,7 +118,7 @@ reviewGo=function(){
   if(c.scanning){const again=state.documents.some(d=>d.status!=='review'&&d.candidates.length)?'重新识别':'识别剩余材料';return act({cls:'next',a:'start-scan',title:again+'，已做的决定保留',inner:`${icon('right',15)}<span class="lbl">${again}</span>`,key:'scan'});}
   if(c.pending)return act({cls:'todo',a:'next',title:`下一处待确认，还剩 ${c.pending} 处（J）`,inner:`<b>${c.pending}</b><span class="lbl">处待确认</span>${icon('next',14)}`,key:'n'+c.pending});
   if(clash)return act({cls:'todo',a:'conflict',title:'处理重叠范围',inner:`<b>${clash}</b><span class="lbl">处范围重叠</span>${icon('next',14)}`,key:'conflict'+clash});
-  return act({cls:'ready',a:'release',title:liveHost?'把脱敏稿交给 AI':'导出脱敏 Markdown',inner:`${icon('up',15)}<span class="lbl">${liveHost?'交给 AI':'导出脱敏稿'}</span>`,key:'export'});
+  return act({cls:'ready',a:'release',title:'把脱敏稿'+handName(),inner:`${icon('up',15)}<span class="lbl">${handName()}</span>`,key:'export'});
 };
 paraHtml=function(d,si,pi,hits,cur,from=0,to){
   const text=COMPILED[d.template].sections[si].paragraphs[pi],here=hits.filter(h=>h.s===si&&h.p===pi);
@@ -146,13 +149,13 @@ paper=function(d,hits){
 };
 moreMenu=function(items){
   if(state.page!=='review'&&state.page!=='done')return protoMoreMenu(items);
-  const extra=[['scope-open','search','脱敏范围'],['export-mapping','lock','导出映射文件',!Object.keys(liveMapping).length]];
+  const extra=[['scope-open','search','脱敏范围'],['hosts-open','lock','接入 Agent'],['export-mapping','lock','导出映射文件',!Object.keys(liveMapping).length]];
   if(state.page==='review')extra.push(['remove-document','x','移除当前材料']);
   return protoMoreMenu([...items,...extra]);
 };
 function downloadLink(f){return `<a class="download" href="/api/download/${encodeURIComponent(f.id)}" download>${icon('down',16)} ${esc(f.name)}</a>`;}
 donePage=function(){
-  return bar()+`<main class="center" data-k="p-done"><h1 class="ask">${esc(liveDone.title)}</h1><p class="quiet">${esc(liveDone.sub)}</p><div class="downloads">${liveFiles.map(downloadLink).join('')}</div><button class="cta" data-a="review-open">返回核对</button></main>`+dock('done',`${moreMenu([['export','share','导出原格式',!canExport(state)],['restore-file','doc','打开结果文件'],['add-more','plus','补充材料']])}<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴 AI 结果，还原真名"></textarea></label>${go({cls:'next',a:'restore-open',label:'还原结果',inner:icon('down'),key:'restore'})}`);
+  return bar()+`<main class="center" data-k="p-done"><h1 class="ask">${esc(liveDone.title)}</h1><p class="quiet">${esc(liveDone.sub)}</p>${liveDone.brief?`<button class="cta hot" data-a="copy-brief">${icon(liveCopied?'check':'doc',18)}${liveCopied?'已复制，去 Agent 里粘贴':'复制给 Agent 的指令'}</button>`:''}<div class="downloads">${liveFiles.map(downloadLink).join('')}</div><button class="cta ${liveDone.brief?'soft':''}" data-a="review-open">返回核对</button></main>`+dock('done',`${moreMenu([['export','share','导出原格式',!canExport(state)],['restore-file','doc','打开结果文件'],['add-more','plus','补充材料']])}<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴 AI 结果，还原真名"></textarea></label>${go({cls:'next',a:'restore-open',label:'还原结果',inner:icon('down'),key:'restore'})}`);
 };
 restorePage=function(){
   if(state.restoreInput.trim()){
@@ -166,16 +169,30 @@ restorePage=function(){
   }
   return bar({title:'还原结果'})+`<main class="center" data-k="p-restore-input"><h1 class="ask">还原 AI 结果中的代号</h1><p class="quiet">${liveRestoreMapping?`使用映射文件 ${esc(liveRestoreMapping.name)}（${Object.keys(liveRestoreMapping.mapping).length} 个代号），不并入本项目`:'使用本项目已保存的映射'}，真名版只保存到本机</p><button class="cta" data-a="restore-file">打开 TXT / Markdown 结果文件</button>${liveRestoreMapping?'<button class="alt" data-a="clear-mapping">改用本项目映射</button>':'<button class="alt" data-a="mapping-file">改用映射文件（mapping.json）</button>'}</main>`+dock('restore',`<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴含代号的文本"></textarea></label>`);
 };
+const handName=()=>liveHost?'交给 AI':'交给 Agent';
 function exportDialog(kind){
   const partial=state.documents.some(d=>d.issues.length),c=counts(state);
-  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="确认导出"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><h2>${kind==='original'?'导出原格式文件':liveHost?'交给 AI':'导出脱敏 Markdown'}</h2><div class="tally"><span>脱敏 ${c.masked} 处</span><span>保留 ${c.kept} 处</span><span>补录 ${c.manual} 处</span></div>${noticeHtml()}${partial?'<label class="partial-ack"><input type="checkbox" id="partial-ack"> 我已核对以上未处理内容，按部分处理导出</label>':''}<p class="quiet">${kind==='markdown'&&liveHost?'脱敏稿写入工作目录的 mask-handoff 文件夹，AI 只读这里；原件和映射不会写入':'原文件不会覆盖，映射不包含在下载文件中'}</p><button class="cta hot" id="confirm" data-a="${kind==='original'?'confirm-export':'confirm-handoff'}" ${liveBusy?'disabled':''}>${kind==='markdown'&&liveHost?icon('up',18)+'交给 AI':icon('down',18)+'生成文件'}</button></section>`;
+  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="确认导出"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><h2>${kind==='original'?'导出原格式文件':handName()}</h2><div class="tally"><span>脱敏 ${c.masked} 处</span><span>保留 ${c.kept} 处</span><span>补录 ${c.manual} 处</span></div>${noticeHtml()}${partial?'<label class="partial-ack"><input type="checkbox" id="partial-ack"> 我已核对以上未处理内容，按部分处理导出</label>':''}<p class="quiet">${kind==='markdown'?'脱敏稿写入工作目录的 mask-handoff 文件夹，Agent 只读这里；原件和映射不会写入':'原文件不会覆盖，映射不包含在下载文件中'}</p><button class="cta hot" id="confirm" data-a="${kind==='original'?'confirm-export':'confirm-handoff'}" ${liveBusy?'disabled':''}>${kind==='markdown'?icon('up',18)+handName():icon('down',18)+'生成文件'}</button></section>`;
 }
 handoffSheet=function(){return exportDialog('markdown');};
 // 脱敏范围：标准类别默认全开；按需类别默认保留，开启后才识别。
 function scopeLine(){
   const extra=liveCatalog.filter(g=>g.optional).flatMap(g=>g.categories).filter(c=>CATEGORIES.includes(c)).length;
-  return `<button class="alt" data-a="scope-open">脱敏范围：${CATEGORIES.length-extra} 类${extra?`，另加按需 ${extra} 类`:''} ›</button>`;
+  return `<button class="opt" data-a="scope-open"><span>脱敏范围</span><b>${CATEGORIES.length-extra} 类${extra?` + 按需 ${extra} 类`:''}</b>${icon('next',12)}</button>`;
 }
+// 接入 Agent：开关打开即把技能和拦截装入该 Agent，关闭即移除。对本机所有项目生效。
+const AGENTS=[['dsh','DeepSeek Harness'],['codex','Codex'],['claude-code','Claude Code']];
+const hostOn=id=>!!liveHosts.find(h=>h.id===id)?.enabled;
+function hostsLine(){
+  const on=AGENTS.filter(([id])=>hostOn(id)).map(([,name])=>name);
+  return `<button class="opt" data-a="hosts-open"><i class="dot ${on.length?'on':''}"></i><span>Agent</span><b>${on.length?esc(on.join('、')):'未接入'}</b>${icon('next',12)}</button>`;
+}
+SHEETS.hosts=function(){
+  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="接入 Agent"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><h2>接入 Agent</h2>${AGENTS.map(([id,name])=>{
+    const ready=liveHosts.some(h=>h.id===id),on=hostOn(id);
+    return `<div class="host-row"><div><b>${esc(name)}</b><span>${!ready?'暂未支持':on?'已开启：/mask 技能可用，含真名的提问和读取原件会被拦下':'已关闭：这个 Agent 不受 Mask 约束'}</span></div><button class="switch ${on?'on':''}" role="switch" aria-checked="${on}" aria-label="${esc(name)}" data-a="host-toggle" data-v="${id}" ${!ready||liveBusy?'disabled':''}><i></i></button></div>`;
+  }).join('')}<p class="quiet">开关对本机所有项目生效，切换后重启该 Agent 才起效。拦截只在有 Mask 项目的工作目录里起作用</p></section>`;
+};
 SHEETS.scope=function(){
   const rescan=state.documents.some(d=>d.status==='review');
   const isDefault=liveScope.size===liveDefaultScope.length&&liveDefaultScope.every(c=>liveScope.has(c));
@@ -224,10 +241,14 @@ async function doExport(kind){
   if(partial&&!ack)throw new Error('请先确认未处理内容');
   await persist();liveProgress='正在生成并校验文件';render();
   const result=await api('export',{kind,acknowledge:ack,revision:liveRevision});
-  liveRevision=result.revision;liveFiles=result.handoff?[]:result.files;
+  liveRevision=result.revision;liveFiles=liveHost?[]:result.files;
   hydrate(await api('project',undefined,'GET'));
   state.sheet='';state.page='done';state.phase='handed';state.restored=false;
-  liveDone=result.handoff?{title:'已交给 AI',sub:'回到对话，发送“继续”。脱敏稿在 '+result.handoff}:{title:'脱敏文件已生成',sub:kind==='markdown'?'下载后交给 AI；文件开头附有代号说明':'原文件未改动'};
+  liveCopied=false;
+  // Opened by the user rather than a host skill: the agent is told where the masked drafts are by a pasted brief.
+  liveDone=liveHost&&result.handoff?{title:'已交给 AI',sub:'回到对话，发送“继续”。脱敏稿在 '+result.handoff}:result.handoff?{title:'已交给 Agent',sub:'在 Agent 里粘贴下面的指令，再写你的需求。脱敏稿在 '+result.handoff,brief:`请只读取 ${result.handoff} 里的脱敏稿来完成我的任务，不要读取、搜索或列出这个文件夹以外的材料。文件开头有代号说明：回答时原样使用代号，不要猜测代号背后的真实信息。
+
+我的任务：`}:{title:'脱敏文件已生成',sub:kind==='markdown'?'下载后交给 AI；文件开头附有代号说明':'原文件未改动'};
 }
 Object.assign(ACTIONS,{
   home:()=>{state.page='import';state.view='bench';render();},
@@ -272,6 +293,9 @@ Object.assign(ACTIONS,{
     hydrate(await api('scope',{categories:[...liveScope],revision:liveRevision},'PUT'));
     state.sheet='';
   }),
+  'hosts-open':()=>{state.menu=false;dispatch({type:'sheet',value:'hosts'});render();},
+  'host-toggle':t=>task(async()=>{liveHosts=(await api('hosts/'+t.dataset.v,{enabled:!hostOn(t.dataset.v)},'PUT')).hosts;}),
+  'copy-brief':()=>task(async()=>{await navigator.clipboard.writeText(liveDone.brief);liveCopied=true;}),
   'scope-default':()=>task(async()=>{liveDefaultScope=(await api('default-scope',{categories:[...liveScope]},'PUT')).default_scope;})
 });
 const resultPicker=document.createElement('input');resultPicker.type='file';resultPicker.accept='.txt,.md';resultPicker.id='result-picker';resultPicker.hidden=true;document.body.append(resultPicker);
@@ -297,6 +321,12 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
   .tile.off{opacity:.45;cursor:default}
   .scope-group{display:grid;gap:8px}.scope-head{display:flex;align-items:baseline;gap:8px;font-size:13px}.scope-head b{font-weight:600}.scope-head span{flex:1;color:var(--ink2);font-size:12px}.scope-head button{color:var(--ink2);font-size:12px;text-decoration:underline;text-underline-offset:3px}
   .scope-chips{display:flex;flex-wrap:wrap;gap:6px}.scope-chip{padding:5px 12px;border-radius:10px;background:var(--fill);color:var(--ink2);font-size:13px;transition:background-color .15s,color .15s}.scope-chip.on{background:var(--pill);color:var(--pill-fg)}
+  .opts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+  .opt{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px 0 14px;border-radius:17px;background:var(--fill);color:var(--ink2);font-size:13px;transition:background-color .15s}.opt:hover{background:var(--fill2)}.opt b{font-weight:500;color:var(--ink)}.opt svg{color:var(--ink3)}
+  .opt .dot{width:7px;height:7px;border-radius:50%;background:var(--ink3)}.opt .dot.on{background:#4a7de0}
+  .host-row{display:flex;align-items:center;gap:16px}.host-row>div{flex:1;display:grid;gap:3px}.host-row b{font-weight:600;font-size:14px}.host-row span{color:var(--ink2);font-size:12px}
+  .switch{flex:none;width:46px;height:26px;border-radius:13px;background:var(--fill2);padding:3px;transition:background-color .2s}.switch i{display:block;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s var(--spring)}
+  .switch.on{background:#4a7de0}.switch.on i{transform:translateX(20px)}.switch:disabled{opacity:.4}
   .modal .quiet,.modal .alt{margin-top:0}.alt:disabled{text-decoration:none}
   .partial-ack{display:flex;gap:8px;margin:16px 0;align-items:flex-start}.modal h2{margin:22px 0 14px}.quiet{line-height:1.7}.tiles{max-height:45vh;overflow:auto}
 `;document.head.append(liveStyle);

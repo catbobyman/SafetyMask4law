@@ -70,13 +70,19 @@ def hook(event: dict):
         project = Project(workspace)
         private = {Path(d['origin']).resolve() for d in project.state['documents'] if d.get('origin')}
         tool_input = event.get('tool_input') or {}
-        targets = {(Path(event.get('cwd') or '.') / tool_input[k]).resolve()
+        cwd = Path(event.get('cwd') or '.').resolve()
+        targets = {(cwd / tool_input[k]).resolve()
                    for k in ('file_path', 'path', 'notebook_path') if isinstance(tool_input.get(k), str)}
+        if not targets and str(event.get('tool_name')).lower() in ('grep', 'glob'):
+            # A search without a path covers the folder the host is working in.
+            targets = {cwd}
         command = tool_input.get('command') if isinstance(tool_input.get('command'), str) else ''
         inside = any(project.directory == t or project.directory in t.parents for t in targets)
-        if targets & private or inside or any(p.name in command for p in private) or str(project.directory) in command:
+        # Searching or listing a folder that holds an original returns its text or its name.
+        covers = any(t in p.parents for t in targets for p in private)
+        if targets & private or inside or covers or any(p.name in command for p in private) or str(project.directory) in command:
             return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
-                    'permissionDecisionReason': 'Mask：这是已脱敏材料的原件或映射，不能读取。请读取 mask-handoff/ 里的脱敏稿。'}}
+                    'permissionDecisionReason': 'Mask：这里有已脱敏材料的原件或映射，不能读取、搜索或列出。请只在 mask-handoff/ 里读取脱敏稿。'}}
     return None
 
 

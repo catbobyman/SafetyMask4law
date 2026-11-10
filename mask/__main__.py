@@ -3,6 +3,7 @@
 python -m mask [workbench]            local workbench in the browser
 python -m mask skill start|status     commands run by a host skill
 python -m mask guard hook|proxy       keep known originals out of host requests
+python -m mask install|uninstall dsh  put the skill and the guard into DeepSeek Harness
 """
 from __future__ import annotations
 
@@ -37,8 +38,14 @@ def main():
     proxy.add_argument('--upstream', required=True, help='模型服务地址，如 https://api.anthropic.com')
     proxy.add_argument('--port', type=int, default=8788)
 
+    for command in ('install', 'uninstall'):
+        modes.add_parser(command, help='把技能和拦截装入宿主 / 从宿主移除').add_argument('host', choices=['dsh'], help='dsh：DeepSeek Harness')
+
     args = parser.parse_args()
-    if args.mode == 'skill':
+    if args.mode in ('install', 'uninstall'):
+        from .modes import install as mode
+        getattr(mode, args.mode)()
+    elif args.mode == 'skill':
         from .modes import skill as mode
         mode.start(args.workspace) if args.command == 'start' else mode.status(args.workspace, args.wait)
     elif args.mode == 'guard':
