@@ -185,17 +185,28 @@ def run():
     uvicorn.run(create_app(), host='127.0.0.1', port=PORT, log_level='warning', access_log=False)
 
 
-def running():
+def health():
+    """When each agent last sent a request since the gateway started, or None when it is not listening."""
     import requests
     session = requests.Session()
     session.trust_env = False
     try:
         reply = session.get(f'{URL}/mask/health', timeout=3)
     except requests.ConnectionError:
-        return False
+        return None
     if reply.headers.get('X-Mask') != 'gateway':
         raise SystemExit(f'端口 {PORT} 被别的程序占用，Mask 网关无法启动')
-    return True
+    return reply.json()['agents']
+
+
+def running():
+    return health() is not None
+
+
+def records(day: str):
+    """The request records of one day, oldest first."""
+    file = app_dir() / 'gateway' / f'{day}.jsonl'
+    return [json.loads(line) for line in file.read_text(encoding='utf-8').splitlines()] if file.exists() else []
 
 
 def start():

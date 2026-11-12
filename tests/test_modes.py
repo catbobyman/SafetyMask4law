@@ -114,7 +114,27 @@ def test_dsh_install_touches_only_its_own_block(tmp_path, monkeypatch):
         switch = lambda on: client.put('/api/hosts/dsh', headers={'X-Mask': '1'}, json={'enabled': on}).json()
         assert switch(True) == {'hosts': [{'id': 'dsh', 'enabled': True}]} and installed_block(patch)
         assert client.get('/api/project').json()['hosts'] == [{'id': 'dsh', 'enabled': True}]
+        # The panel reads its state live: the patch file, whether the gateway listens, whether dsh has sent a request.
+        heard = {}
+        monkeypatch.setattr(gateway, 'health', lambda: heard.get('agents'))
+        panel = lambda: client.get('/api/hosts').json()
+        assert panel()['agents'][0]['state'] == 'down' and not panel()['gateway']['running']
+        # A request from before the address was written came from a dsh that still ran on its old settings.
+        for heard['agents'] in ({}, {'dsh': '2000-01-01T00:00:00'}):
+            assert panel()['agents'][0]['state'] == 'pending'
+        heard['agents'] = {'dsh': '9999-01-01T00:00:00'}
+        gateway.log({'t': gateway.time.strftime('%Y-%m-%dT%H:%M:%S'), 'agent': 'dsh', 'project': 'x', 'tags': {NAME: 2}, 'status': 200})
+        gateway.log({'t': gateway.time.strftime('%Y-%m-%dT%H:%M:%S'), 'agent': 'dsh', 'project': 'x', 'refused': 'strict', 'status': 400})
+        assert panel()['agents'][0]['state'] == 'live' and panel()['gateway'] == {
+            'running': True, 'problem': None, 'requests': 2, 'replaced': 2, 'refused': 1}
+        assert [r['status'] for r in client.get('/api/gateway/log').json()['records']] == [400, 200]
+        # Disconnecting is confirmed against the lines it removes; connecting can be looked at before and after.
+        removed = client.get('/api/hosts/dsh/preview', params={'enabled': False}).json()
+        assert removed['file'] == str(patch) and {kind for kind, _ in removed['lines']} == {'-'}
+        added = client.get('/api/hosts/dsh/preview', params={'enabled': True}).json()['lines']
+        assert [text for kind, text in added if kind == '+'] == [text for _, text in removed['lines']]
         assert switch(False) == {'hosts': [{'id': 'dsh', 'enabled': False}]} and not patch.exists()
+        assert panel()['agents'][0]['state'] == 'off' and panel()['agents'][0]['blocked'] is None
 
 
 def test_legacy_plain_project_is_sealed(tmp_path):

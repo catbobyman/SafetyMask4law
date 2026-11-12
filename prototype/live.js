@@ -180,19 +180,86 @@ function scopeLine(){
   const extra=liveCatalog.filter(g=>g.optional).flatMap(g=>g.categories).filter(c=>CATEGORIES.includes(c)).length;
   return `<button class="opt" data-a="scope-open"><span>脱敏范围</span><b>${CATEGORIES.length-extra} 类${extra?` + 按需 ${extra} 类`:''}</b>${icon('next',12)}</button>`;
 }
-// 接入 Agent：开关打开即把技能和拦截装入该 Agent，关闭即移除。对本机所有项目生效。
-const AGENTS=[['dsh','DeepSeek Harness'],['codex','Codex'],['claude-code','Claude Code']];
+// 接入 Agent：一份面板两页（Agent / 记录）。只读写全机状态，对本机所有案件生效，不依赖当前打开的案件。
+const AGENTS=[['dsh','DeepSeek Harness','D'],['codex','Codex','C'],['claude-code','Claude Code','C']];
+// gw：GET /api/hosts 的结果。gwView：''、'off'（断开确认）、'diff'（看改动）。gwUndo：刚接入、还能撤销的 Agent。
+let gw=null,gwTab='agents',gwOpen='',gwView='',gwDiff=null,gwLog=null,gwLogBy='req',gwOpenLog=-1,gwUndo='',gwBusy='',gwPoll=0,gwUndoTimer=0;
 const hostOn=id=>!!liveHosts.find(h=>h.id===id)?.enabled;
+const agentName=id=>AGENTS.find(a=>a[0]===id)?.[1]||id;
+const sumTags=r=>Object.values(r.tags||{}).reduce((a,b)=>a+b,0);
+async function gwRefresh(){
+  gw=await api('hosts',undefined,'GET');
+  liveHosts=gw.agents.map(a=>({id:a.id,enabled:a.state!=='off'}));
+  if(gwTab==='log')gwLog=await api('gateway/log',undefined,'GET');
+}
 function hostsLine(){
-  const on=AGENTS.filter(([id])=>hostOn(id)).map(([,name])=>name);
-  return `<button class="opt" data-a="hosts-open"><i class="dot ${on.length?'on':''}"></i><span>Agent</span><b>${on.length?esc(on.join('、')):'未接入'}</b>${icon('next',12)}</button>`;
+  const on=AGENTS.filter(([id])=>hostOn(id)).map(([,name])=>name),todo=gw?.agents.some(a=>a.state==='down');
+  return `<button class="opt" data-a="hosts-open"><i class="dot ${todo?'todo':on.length?'on':''}"></i><span>Agent</span><b>${on.length?esc(on.join('、')):'未接入'}</b>${icon('next',12)}</button>`;
+}
+function gwLine(){
+  const g=gw.gateway;
+  if(g.problem)return `<div class="gw down"><span><b>网关无法启动</b> · ${esc(g.problem)}</span></div>`;
+  if(gw.agents.some(a=>a.state==='down'))return `<div class="gw down"><span><b>网关没有运行</b> · 已接入的 Agent 现在发不出请求</span><button data-a="gw-start" ${liveBusy?'disabled':''}>启动</button></div>`;
+  if(!gw.agents.some(a=>a.state!=='off'))return `<div class="gw"><i class="gdot"></i><span>还没有 Agent 经过 Mask。打开开关后，它发给模型的内容里已确认的真名会换成代号。</span></div>`;
+  return `<div class="gw"><i class="gdot on"></i><span><b>网关运行中</b></span><span class="nums">今天 ${g.requests} 条请求 · 换了 ${g.replaced} 处${g.refused?` · 拦下 ${g.refused} 条`:''}</span></div>`;
+}
+function agentRow([id,name,glyph]){
+  const a=gw.agents.find(a=>a.id===id);
+  if(!a)return `<div class="ag na"><div class="ag-ic">${glyph}</div><div class="ag-main"><b>${esc(name)}</b><div class="ag-st">暂未支持</div></div></div>`;
+  const on=a.state!=='off',open=gwOpen===id,busy=gwBusy===id,host=new URL(a.upstream).host;
+  const [dot,text]=busy?['wait',on?'正在断开…':'正在启动网关并写入配置…']:a.blocked?['','不能接入']:{
+    off:['','未接入 · 直连 '+host],pending:['wait',`已接入 · 重启 ${name} 后生效`],live:['on','已接入 · 生效中'],down:['todo','已接入 · 网关没有运行，请求发不出去']}[a.state];
+  const right=a.blocked?'':`<button class="switch ${on?'on':''}" role="switch" aria-checked="${on}" aria-label="${esc(name)}" data-a="host-toggle" data-v="${id}" ${liveBusy?'disabled':''}><i></i></button>`;
+  const route=`<div class="kv"><span>请求去向</span><code>${esc(name)} → Mask → ${esc(host)}</code></div>`;
+  const scope='<div>同时装入 /mask 技能和拦截插件。只有 DeepSeek 官方路由（API Key）的模型经过 Mask，在它里面选了其他提供方的模型时不经过。</div>';
+  const detail=!open?'':a.blocked?`<div class="ag-detail"><div>${esc(a.blocked)}</div></div>`
+    :!on?`<div class="ag-detail"><div class="kv"><span>会改</span><code>${esc(a.file)}（加 Mask 的一块）</code></div>${route}${scope}<div class="links"><button class="lk" data-a="gw-diff" data-v="${id}">看将要改的内容</button></div></div>`
+    :`<div class="ag-detail"><div class="kv"><span>改动位置</span><code>${esc(a.file)}（Mask 的一块）</code></div>${route}${a.state==='pending'?`<div>已打开的 ${esc(name)} 还在用旧设置。重启后第一条请求到达，这里会变成“生效中”。</div>`:''}${scope}<div class="links"><button class="lk" data-a="gw-diff" data-v="${id}">看改了什么</button><button class="lk" data-a="gw-tab" data-v="log">看它的记录</button><button class="lk red" data-a="gw-ask-off" data-v="${id}">断开并还原</button></div></div>`;
+  return `<div class="ag"><div class="ag-ic">${glyph}</div><div class="ag-main"><b>${esc(name)}</b><div class="ag-st ${dot==='todo'?'todo':''}">${dot?`<i class="gdot ${dot}"></i>`:''}${esc(text)}</div></div><button class="ag-more ${open?'open':''}" data-a="gw-open" data-v="${id}" aria-expanded="${open}">${a.blocked?'原因':'详情'}${icon('next',13)}</button>${right}</div>${detail}`;
+}
+function gwAgents(){
+  const undo=gwUndo?`<div class="gw note"><span>已接入 ${esc(agentName(gwUndo))}，重启它后生效</span><button data-a="gw-undo" ${liveBusy?'disabled':''}>撤销</button></div>`:'';
+  return undo+gwLine()+`<div class="ags">${AGENTS.map(agentRow).join('')}</div><p class="quiet">开关对本机所有案件生效。原件和映射始终只在本机</p>`;
+}
+const REFUSED={strict:r=>`含未脱敏的${(r.strict||[]).join('、')}号码，没有发出。请先在工作台处理那份材料`,path:()=>'案件文件夹的路径里含已脱敏的名称，没有发出。请把材料放到路径里不含该名称的文件夹',
+  'not-json':()=>'请求不是 JSON（如上传图片），无法检查，没有发出',encoding:()=>'请求体经过压缩，无法检查，没有发出',error:()=>'检查请求时出错，没有发出'};
+function gwRecords(){
+  if(!gwLog)return '<div class="empty">正在读取…</div>';
+  if(!gwLog.records.length)return '<div class="empty">今天还没有记录。<br>接入的 Agent 每发一条请求，换了什么会列在这里，不记原文。</div>';
+  const by=`<div class="gseg sm"><button class="${gwLogBy==='req'?'on':''}" data-a="gw-logby" data-v="req">按请求</button><button class="${gwLogBy==='tag'?'on':''}" data-a="gw-logby" data-v="tag">按代号</button></div>`;
+  if(gwLogBy==='tag'){
+    const sum={};gwLog.records.forEach(r=>Object.entries(r.tags||{}).forEach(([t,n])=>sum[t]=(sum[t]||0)+n));
+    const rows=Object.entries(sum).sort((x,y)=>y[1]-x[1]);
+    return by+(rows.length?`<div class="logs">${rows.map(([t,n])=>`<div class="lg tagrow"><span><span class="tag">${esc(t)}</span></span><em>今天换了 ${n} 处</em></div>`).join('')}</div><p class="quiet">代号对应的原文在对应案件的“实体”面板里看</p>`:'<div class="empty">今天的请求里没有已确认的真名。</div>');
+  }
+  return by+`<div class="logs">${gwLog.records.map((r,i)=>{
+    const n=sumTags(r),open=gwOpenLog===i,bad=r.refused||r.status>=400;
+    const where=r.project===gwLog.here?'本案件':r.project==='*'?'未说明工作目录':r.project?'其他案件':'没有 Mask 项目的目录';
+    const right=r.refused?'未发送':r.status===502?'没连上模型服务':r.status>=400?`模型服务返回 ${r.status}`:n?`换了 ${n} 处`:'没有要换的';
+    const x=!open?'':`<div class="lg-x">${r.refused?`<p>${esc(REFUSED[r.refused](r))}</p>`:n?Object.entries(r.tags).map(([t,c])=>`<span class="tag">${esc(t)}<b>×${c}</b></span>`).join(''):`<small>${r.project?'这条请求里没有已确认的真名。':'这个目录没有 Mask 项目，只检查了身份证号和信用代码。'}</small>`}</div>`;
+    return `<button class="lg ${bad?'blk':''}" data-a="gw-openlog" data-v="${i}" aria-expanded="${open}"><time>${esc(r.t.slice(11,16))}</time><span>${esc(agentName(r.agent))}<small> · ${where}</small></span><em>${right}</em></button>${x}`;
+  }).join('')}</div>`;
+}
+function gwDiffBox(){
+  return `<div class="diff"><div class="diff-h">${esc(gwDiff.file)}</div>${gwDiff.lines.length?gwDiff.lines.map(([k,t])=>`<div class="dl ${k==='+'?'add':k==='-'?'del':'ctx'}" title="${esc(t)}">${esc(k+' '+t)}</div>`).join(''):'<div class="dl ctx">没有要改的内容</div>'}</div>`;
+}
+function gwConfirm(){
+  const name=agentName(gwDiff.id),back=`<button class="bk" data-a="gw-back" aria-label="返回">${icon('back',15)}</button>`;
+  if(gwView==='off')return back+`<h2>断开 ${esc(name)} 和 Mask？</h2><p class="say">${esc(name)} 将恢复接入前的设置。要删掉的只有 Mask 自己写的这一块，别的不动；/mask 技能一并移除。</p>${gwDiffBox()}<div class="warn">${icon('info',16)}<span>断开后，它发给模型的内容不再经过 Mask，真名会原样发出。重启 ${esc(name)} 后生效。</span></div><div class="btns"><button class="cta soft" data-a="gw-back">取消</button><button class="cta hot" data-a="gw-off" ${liveBusy?'disabled':''}>断开并还原</button></div>`;
+  return back+`<h2>${hostOn(gwDiff.id)?'接入时改了什么':'接入会改什么'}</h2><p class="say">只加 Mask 自己的这一块：拦截插件，以及 DeepSeek 官方路由的地址。<b>API Key 和其他设置不动。</b>断开时就是删掉这一块。</p>${gwDiffBox()}<div class="btns"><button class="cta soft" data-a="gw-back">知道了</button></div>`;
 }
 SHEETS.hosts=function(){
-  return `<div class="scrim" data-a="close-sheet"></div><section class="modal" role="dialog" aria-modal="true" aria-label="接入 Agent"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button><h2>接入 Agent</h2>${AGENTS.map(([id,name])=>{
-    const ready=liveHosts.some(h=>h.id===id),on=hostOn(id);
-    return `<div class="host-row"><div><b>${esc(name)}</b><span>${!ready?'暂未支持':on?'已开启：/mask 技能可用，含真名的提问和读取原件会被拦下':'已关闭：这个 Agent 不受 Mask 约束'}</span></div><button class="switch ${on?'on':''}" role="switch" aria-checked="${on}" aria-label="${esc(name)}" data-a="host-toggle" data-v="${id}" ${!ready||liveBusy?'disabled':''}><i></i></button></div>`;
-  }).join('')}<p class="quiet">开关对本机所有项目生效，切换后重启该 Agent 才起效。拦截只在有 Mask 项目的工作目录里起作用</p></section>`;
+  const head=`<div class="scrim" data-a="close-sheet"></div><section class="modal gwp" role="dialog" aria-modal="true" aria-label="接入 Agent"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button>`;
+  if(!gw)return head+'<h2>接入 Agent</h2><div class="empty">正在读取…</div></section>';
+  if(gwView)return head+gwConfirm()+'</section>';
+  return head+`<div class="gseg"><button class="${gwTab==='agents'?'on':''}" data-a="gw-tab" data-v="agents">Agent</button><button class="${gwTab==='log'?'on':''}" data-a="gw-tab" data-v="log">记录</button></div>`+(gwTab==='agents'?gwAgents():gwRecords())+'</section>';
 };
+async function gwSwitch(id,on){
+  gwBusy=id;render();
+  try{await api('hosts/'+id,{enabled:on},'PUT');}finally{gwBusy='';await gwRefresh();}
+  clearTimeout(gwUndoTimer);gwUndo='';gwView='';
+  if(on){gwOpen=id;gwUndo=id;gwUndoTimer=setTimeout(()=>{gwUndo='';render();},6000);}
+}
 SHEETS.scope=function(){
   const rescan=state.documents.some(d=>d.status==='review');
   const isDefault=liveScope.size===liveDefaultScope.length&&liveDefaultScope.every(c=>liveScope.has(c));
@@ -293,8 +360,25 @@ Object.assign(ACTIONS,{
     hydrate(await api('scope',{categories:[...liveScope],revision:liveRevision},'PUT'));
     state.sheet='';
   }),
-  'hosts-open':()=>{state.menu=false;dispatch({type:'sheet',value:'hosts'});render();},
-  'host-toggle':t=>task(async()=>{liveHosts=(await api('hosts/'+t.dataset.v,{enabled:!hostOn(t.dataset.v)},'PUT')).hosts;}),
+  'hosts-open':()=>{
+    state.menu=false;gwView='';dispatch({type:'sheet',value:'hosts'});render();
+    const refresh=()=>gwRefresh().then(render,fail);
+    refresh();clearInterval(gwPoll);
+    // The state changes outside this page: the agent restarts, sends a request, the gateway stops.
+    gwPoll=setInterval(()=>{if(state.sheet!=='hosts')clearInterval(gwPoll);else if(!liveBusy&&!gwView)refresh();},4000);
+  },
+  // Connecting is one click and can be undone; disconnecting shows what is removed and asks first.
+  'host-toggle':t=>hostOn(t.dataset.v)?ACTIONS['gw-ask-off'](t):task(()=>gwSwitch(t.dataset.v,true)),
+  'gw-ask-off':t=>task(async()=>{gwDiff={id:t.dataset.v,...await api('hosts/'+t.dataset.v+'/preview?enabled=false',undefined,'GET')};gwView='off';}),
+  'gw-diff':t=>task(async()=>{gwDiff={id:t.dataset.v,...await api('hosts/'+t.dataset.v+'/preview?enabled=true',undefined,'GET')};gwView='diff';}),
+  'gw-off':()=>task(()=>gwSwitch(gwDiff.id,false)),
+  'gw-undo':()=>task(()=>gwSwitch(gwUndo,false)),
+  'gw-back':()=>{gwView='';render();},
+  'gw-open':t=>{gwOpen=gwOpen===t.dataset.v?'':t.dataset.v;render();},
+  'gw-tab':t=>task(async()=>{gwTab=t.dataset.v;gwOpenLog=-1;await gwRefresh();}),
+  'gw-logby':t=>{gwLogBy=t.dataset.v;render();},
+  'gw-openlog':t=>{gwOpenLog=gwOpenLog===+t.dataset.v?-1:+t.dataset.v;render();},
+  'gw-start':()=>task(async()=>{gw=await api('gateway/start',{});}),
   'copy-brief':()=>task(async()=>{await navigator.clipboard.writeText(liveDone.brief);liveCopied=true;}),
   'scope-default':()=>task(async()=>{liveDefaultScope=(await api('default-scope',{categories:[...liveScope]},'PUT')).default_scope;})
 });
@@ -323,10 +407,33 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
   .scope-chips{display:flex;flex-wrap:wrap;gap:6px}.scope-chip{padding:5px 12px;border-radius:10px;background:var(--fill);color:var(--ink2);font-size:13px;transition:background-color .15s,color .15s}.scope-chip.on{background:var(--pill);color:var(--pill-fg)}
   .opts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
   .opt{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px 0 14px;border-radius:17px;background:var(--fill);color:var(--ink2);font-size:13px;transition:background-color .15s}.opt:hover{background:var(--fill2)}.opt b{font-weight:500;color:var(--ink)}.opt svg{color:var(--ink3)}
-  .opt .dot{width:7px;height:7px;border-radius:50%;background:var(--ink3)}.opt .dot.on{background:#4a7de0}
-  .host-row{display:flex;align-items:center;gap:16px}.host-row>div{flex:1;display:grid;gap:3px}.host-row b{font-weight:600;font-size:14px}.host-row span{color:var(--ink2);font-size:12px}
+  .opt .dot{width:7px;height:7px;border-radius:50%;background:var(--ink3)}.opt .dot.on{background:var(--keep)}.opt .dot.todo{background:var(--zhu)}
   .switch{flex:none;width:46px;height:26px;border-radius:13px;background:var(--fill2);padding:3px;transition:background-color .2s}.switch i{display:block;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s var(--spring)}
-  .switch.on{background:#4a7de0}.switch.on i{transform:translateX(20px)}.switch:disabled{opacity:.4}
+  .switch.on{background:#4a7de0}.switch.on i{transform:translateX(20px)}.switch:disabled{opacity:.5}
+  .gwp{width:min(560px,calc(100% - 24px));gap:18px}.gwp h2{margin:0;padding:0 30px;text-align:center}
+  .gwp .bk{position:absolute;top:14px;left:14px;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--fill);color:var(--ink2)}
+  .gseg{display:flex;align-self:center;padding:2px;border-radius:18px;background:var(--fill)}.gseg button{height:30px;padding:0 15px;border-radius:15px;color:var(--ink2);font-size:13px}
+  .gseg button.on{background:var(--elev);box-shadow:0 0 0 .5px var(--line),0 1px 3px rgba(0,0,0,.08);color:var(--ink);font-weight:500}.gseg.sm button{height:26px;padding:0 12px;font-size:12px}
+  .gdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--ink3)}.gdot.on{background:var(--keep)}.gdot.todo{background:var(--zhu)}.gdot.wait{background:#4a7de0;animation:gwpulse 1.2s ease-in-out infinite}
+  @keyframes gwpulse{50%{opacity:.35}}
+  .gw{display:flex;align-items:center;gap:8px;padding:11px 14px;border-radius:16px;background:var(--fill);font-size:13px;line-height:1.6;color:var(--ink2)}.gw b{font-weight:600;color:var(--ink)}
+  .gw.down{background:var(--wash);color:var(--zhu)}.gw.down b{color:var(--zhu)}.gw button{flex:none;margin-left:auto;height:28px;padding:0 13px;border-radius:14px;background:var(--zhu);color:var(--on-zhu);font-size:12.5px;font-weight:600;white-space:nowrap}
+  .gw.note button{background:var(--fill2);color:var(--ink)}.gw .nums{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ags{display:flex;flex-direction:column}.ag{display:flex;align-items:center;gap:13px;padding:13px 2px}.ag+.ag,.ag-detail+.ag{border-top:.5px solid var(--line)}
+  .ag-ic{display:grid;flex:none;place-items:center;width:38px;height:38px;border-radius:11px;background:var(--fill2);font-weight:600;font-size:15px}.ag.na .ag-ic,.ag.na b{opacity:.5}
+  .ag-main{display:grid;flex:1;gap:2px;min-width:0}.ag-main b{font-size:14.5px;font-weight:600}.ag-st{display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:12.5px;line-height:1.45}.ag-st.todo{color:var(--zhu)}
+  .ag-more{display:flex;flex:none;align-items:center;gap:1px;height:30px;padding:0 4px 0 9px;border-radius:15px;color:var(--ink2);font-size:12.5px}.ag-more:hover{background:var(--fill)}.ag-more svg{transition:transform .25s var(--spring)}.ag-more.open svg{transform:rotate(90deg)}
+  .ag-detail{display:grid;gap:9px;margin:0 2px 13px 53px;padding:13px 15px;border-radius:16px;background:var(--fill);font-size:12.5px;line-height:1.6;color:var(--ink2)}
+  .kv{display:grid;grid-template-columns:64px 1fr;gap:10px}.kv span{color:var(--ink3)}.kv code{font:12px/1.6 ui-monospace,Consolas,monospace;color:var(--ink);overflow-wrap:anywhere}
+  .links{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}.lk{height:28px;padding:0 12px;border-radius:14px;background:var(--fill2);color:var(--ink);font-size:12.5px}.lk:hover{background:var(--elev);box-shadow:0 0 0 .5px var(--line)}.lk.red{color:var(--zhu)}
+  .diff{overflow:hidden;border-radius:16px;background:var(--fill);font:12.5px/1.9 ui-monospace,Consolas,monospace}.diff-h{padding:8px 15px;border-bottom:.5px solid var(--line);font-weight:600;overflow-wrap:anywhere}
+  .dl{padding:0 15px;white-space:pre;overflow:hidden;text-overflow:ellipsis}.dl.ctx{color:var(--ink3)}.dl.del{background:var(--wash);color:var(--zhu);text-decoration:line-through}.dl.add{background:var(--keep-wash);color:var(--keep)}
+  .say{color:var(--ink2);font-size:13.5px;line-height:1.7}.say b{color:var(--ink);font-weight:600}.btns{display:flex;gap:10px}.gwp .btns .cta{flex:1;width:auto}
+  .logs{display:flex;flex-direction:column}.lg{display:grid;grid-template-columns:44px 1fr auto;align-items:baseline;gap:10px;width:100%;padding:10px 2px;border-top:.5px solid var(--line);text-align:left;font-size:13px}
+  .lg:first-child{border:0}.lg.tagrow{grid-template-columns:1fr auto}.lg time{color:var(--ink3);font-size:12px;font-variant-numeric:tabular-nums}.lg small{color:var(--ink3);font-size:12px}.lg em{font-style:normal;color:var(--ink2);font-size:12.5px;white-space:nowrap}.lg.blk em{color:var(--zhu);font-weight:600}
+  .lg-x{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-2px 2px 12px 56px}.lg-x p{flex-basis:100%;color:var(--zhu);font-size:12.5px;line-height:1.6}.lg-x small{color:var(--ink3);font-size:12.5px}.lg-x .tag{font-size:12px}.lg-x .tag b{opacity:.7}
+  .empty{padding:26px 10px;color:var(--ink3);font-size:13px;text-align:center;line-height:1.8}
+  @media (max-width:560px){.ag-detail,.lg-x{margin-left:2px}.gw .nums{display:none}.kv{grid-template-columns:1fr;gap:0}.ag-more{padding:0 6px;font-size:0}}
   .modal .quiet,.modal .alt{margin-top:0}.alt:disabled{text-decoration:none}
   .partial-ack{display:flex;gap:8px;margin:16px 0;align-items:flex-start}.modal h2{margin:22px 0 14px}.quiet{line-height:1.7}.tiles{max-height:45vh;overflow:auto}
 `;document.head.append(liveStyle);
@@ -341,6 +448,7 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
     }
     hydrate(await api('project',undefined,'GET'));
     const local=await api('workspace',undefined,'GET');
+    gwRefresh().then(render,fail);
     state.dir.push(...local.filter(f=>!state.dir.some(x=>x.name===f.name)).map(f=>({key:crypto.randomUUID(),name:f.name,local:true,checked:f.supported,unsupported:!f.supported,format:f.name.split('.').pop().toUpperCase()})));
     if(state.documents.length){state.page='review';selectFirst(state);}
     render();

@@ -11,6 +11,7 @@ from pathlib import Path
 import secrets
 import socket
 import threading
+import time
 import webbrowser
 
 from fastapi import FastAPI, Request, UploadFile, File
@@ -22,7 +23,7 @@ from .. import store
 from ..documents import decode_text
 from ..official import ROOT, Recognizer, normalize_mapping_dict
 from ..project import Project, initial_scope, save_initial_scope
-from . import install
+from . import gateway, install
 
 
 class Review(BaseModel):
@@ -76,6 +77,23 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
 
     def public():
         return {**project.public(), 'host': host, 'default_scope': initial_scope(), 'hosts': hosts()}
+
+    def panel():
+        """The Agent panel: machine-wide state read live from the gateway, dsh's patch file and today's records."""
+        try:
+            last, problem = gateway.health(), None
+        except SystemExit as exc:
+            last, problem = None, str(exc)
+        enabled, today = install.installed(), gateway.records(time.strftime('%Y-%m-%d'))
+        patch = install.dsh_home() / 'cordis.patch.yml'
+        # `pending`: written, but dsh has not sent a request since, so it may still run on its old settings.
+        written = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(patch.stat().st_mtime)) if enabled else ''
+        state = 'off' if not enabled else 'down' if last is None else 'live' if last.get('dsh', '') >= written else 'pending'
+        return {'gateway': {'running': last is not None, 'problem': problem, 'requests': len(today),
+                            'replaced': sum(sum(r.get('tags', {}).values()) for r in today),
+                            'refused': sum('refused' in r for r in today)},
+                'agents': [{'id': 'dsh', 'state': state, 'blocked': None if enabled else install.blocked(),
+                            'file': str(patch), 'upstream': gateway.AGENTS['dsh']}]}
 
     @app.middleware('http')
     async def local_only(request: Request, call_next):
@@ -186,6 +204,30 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
         except SystemExit as exc:
             raise ValueError(str(exc)) from exc
         return {'hosts': hosts()}
+
+    @app.get('/api/hosts')
+    def host_panel():
+        return panel()
+
+    @app.get('/api/hosts/dsh/preview')
+    def host_preview(enabled: bool):
+        try:
+            return install.preview(enabled)
+        except SystemExit as exc:
+            raise ValueError(str(exc)) from exc
+
+    @app.post('/api/gateway/start')
+    def gateway_start():
+        try:
+            gateway.start()
+        except SystemExit as exc:
+            raise ValueError(str(exc)) from exc
+        return panel()
+
+    @app.get('/api/gateway/log')
+    def gateway_log():
+        # Newest first. `here` lets the page say which records belong to the project it has open.
+        return {'here': project.directory.name, 'records': gateway.records(time.strftime('%Y-%m-%d'))[::-1][:300]}
 
     @app.post('/api/scan/{identity}')
     def scan(identity: str):

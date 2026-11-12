@@ -7,6 +7,7 @@ the user's: only the block between the two marker lines is added or removed.
 """
 from __future__ import annotations
 
+import difflib
 import json
 import os
 from pathlib import Path
@@ -33,9 +34,9 @@ def _block():
             f'- id: llm-deepseek\n  config:\n    baseURL: {quote(gateway.URL + "/dsh")}\n{END}\n')
 
 
-def _patch(file: Path, block: str):
-    """Rewrite the patch file with Mask's block replaced by `block` ('' removes it)."""
-    text = file.read_text(encoding='utf-8') if file.exists() else ''
+def _patched(file: Path, block: str):
+    """(text now, text with Mask's block replaced by `block`); '' removes the block."""
+    now = text = file.read_text(encoding='utf-8') if file.exists() else ''
     text = re.sub(f'{re.escape(BEGIN)}.*?{re.escape(END)}\n?', '', text, flags=re.S)
     rows = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith('#')]
     if rows == ['[]']:
@@ -48,10 +49,38 @@ def _patch(file: Path, block: str):
     elif not rows:
         # dsh refuses to boot on a patch file without rows.
         text = text + '[]\n' if text.strip() else ''
+    return now, text
+
+
+def _patch(file: Path, block: str):
+    _, text = _patched(file, block)
     if text:
         file.write_text(text, encoding='utf-8')
     else:
         file.unlink(missing_ok=True)
+
+
+def preview(on: bool):
+    """What switching dsh on or off changes in its patch file, as lines for the panel: [kind, text] with kind
+    '+', '-' or ' '. Switching on is shown from the file without Mask's block, also when it is already on."""
+    file = dsh_home() / 'cordis.patch.yml'
+    without = _patched(file, '')[1]
+    before, after = (without, _patched(file, _block())[1]) if on else (_patched(file, '')[0], without)
+    lines = [[line[0], line[2:]] for line in difflib.ndiff(before.splitlines(), after.splitlines()) if line[0] != '?']
+    # A few lines of the user's own file around the change are enough to place it.
+    changed = [i for i, (kind, _) in enumerate(lines) if kind != ' ']
+    return {'file': str(file), 'lines': lines[max(0, changed[0] - 2):changed[-1] + 3] if changed else []}
+
+
+def blocked():
+    """Why dsh cannot be switched on, or None."""
+    home = dsh_home()
+    if not home.is_dir():
+        return f'没有找到 DeepSeek Harness 的配置目录 {home}'
+    own = _own_route(home)
+    if own:
+        # A patch entry replaces the whole config of its row: Mask's would drop what the user set there.
+        return f'{own} 里已有 llm-deepseek 的配置（DeepSeek 路由的地址或模型设置）。Mask 的地址项会整项盖掉它，所以不接入；删去那一项后可以接入'
 
 
 def _own_route(home: Path):
@@ -69,13 +98,8 @@ def installed():
 
 def install():
     home = dsh_home()
-    if not home.is_dir():
-        raise SystemExit(f'没有找到 DeepSeek Harness 的配置目录 {home}')
-    own = _own_route(home)
-    if own:
-        # A patch entry replaces the whole config of its row: Mask's would drop what the user set there.
-        raise SystemExit(f'{own} 里已有 llm-deepseek 的配置（DeepSeek 路由的地址或模型设置）。Mask 的地址项会整项盖掉它，所以没有接入。'
-                         '请先删去那一项，或把其中要保留的设置告诉 Mask 的维护者')
+    if blocked():
+        raise SystemExit(blocked())
     # The gateway listens before dsh is pointed at it, so dsh never talks to a closed port.
     gateway.start()
     skill = home / 'skills/mask'
