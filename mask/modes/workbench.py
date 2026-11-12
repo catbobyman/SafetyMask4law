@@ -86,9 +86,10 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
             last, problem = None, str(exc)
         enabled, today = install.installed(), gateway.records(time.strftime('%Y-%m-%d'))
         patch = install.dsh_home() / 'cordis.patch.yml'
-        # `pending`: written, but dsh has not sent a request since, so it may still run on its old settings.
-        written = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(patch.stat().st_mtime)) if enabled else ''
-        state = 'off' if not enabled else 'down' if last is None else 'live' if last.get('dsh', '') >= written else 'pending'
+        # `pending`: Mask's block changed, but dsh has not sent a request since, so it may still run on its old
+        # settings. Today's records also count, so a gateway restart does not forget dsh's last request.
+        heard = max([(last or {}).get('dsh', ''), *(r['t'] for r in today if r.get('agent') == 'dsh')])
+        state = 'off' if not enabled else 'down' if last is None else 'live' if heard >= install.written() else 'pending'
         return {'gateway': {'running': last is not None, 'problem': problem, 'requests': len(today),
                             'replaced': sum(sum(r.get('tags', {}).values()) for r in today),
                             'refused': sum('refused' in r for r in today)},

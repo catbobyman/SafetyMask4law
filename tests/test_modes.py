@@ -221,9 +221,9 @@ def test_gateway_rewrites_text_and_keeps_protocol(tmp_path, monkeypatch):
             'type': 'object', 'properties': {'张三': {'type': 'string', 'description': f'查{NAME}'}}}}]
         assert sent['model'] == 'deepseek-flash' and sent['max_tokens'] == 5
 
-        # A folder without a project: nothing to replace. No folder stated: every project's originals are replaced.
+        # A folder without a project, or no folder stated: every project's originals are replaced.
         send(request(tmp_path / 'elsewhere')), send(request(None))
-        assert '张三起诉' in seen[1]['messages'][0]['content'][1]['text'] and seen[2]['messages'][0]['content'][0]['text'].startswith(NAME)
+        assert seen[1]['messages'][0]['content'][1]['text'].startswith(NAME) and seen[2]['messages'][0]['content'][0]['text'].startswith(NAME)
 
         refused = lambda response: (response.status_code, response.json()['error']['message'])
         # A number the user never confirmed in the workbench; its checksum is valid.

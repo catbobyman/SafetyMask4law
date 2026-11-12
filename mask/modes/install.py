@@ -14,8 +14,10 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import time
 
 from ..official import ROOT
+from ..project import app_dir
 from . import gateway
 
 BEGIN, END = '# >>> mask guard', '# <<< mask guard'
@@ -53,11 +55,25 @@ def _patched(file: Path, block: str):
 
 
 def _patch(file: Path, block: str):
-    _, text = _patched(file, block)
+    """Write the patch file; True when that changed it."""
+    now, text = _patched(file, block)
+    if text == now:
+        return False
     if text:
         file.write_text(text, encoding='utf-8')
     else:
         file.unlink(missing_ok=True)
+    return True
+
+
+def _written():
+    return app_dir() / 'gateway' / 'dsh.written'
+
+
+def written():
+    """When Mask's block last changed in dsh's patch file, as the gateway's record time, or '' when unknown."""
+    file = _written()
+    return file.read_text(encoding='utf-8') if file.exists() else ''
 
 
 def preview(on: bool):
@@ -98,15 +114,18 @@ def installed():
 
 def install():
     home = dsh_home()
-    if blocked():
-        raise SystemExit(blocked())
+    problem = blocked()
+    if problem:
+        raise SystemExit(problem)
     # The gateway listens before dsh is pointed at it, so dsh never talks to a closed port.
     gateway.start()
     skill = home / 'skills/mask'
     skill.mkdir(parents=True, exist_ok=True)
     source = (ROOT / 'integrations/skill/mask/SKILL.md').read_text(encoding='utf-8')
     (skill / 'SKILL.md').write_text(source.replace('<MASK>', str(ROOT)), encoding='utf-8')
-    _patch(home / 'cordis.patch.yml', _block())
+    if _patch(home / 'cordis.patch.yml', _block()):
+        _written().parent.mkdir(parents=True, exist_ok=True)
+        _written().write_text(time.strftime('%Y-%m-%dT%H:%M:%S'), encoding='utf-8')
     print(f'技能已写入 {skill}\n拦截插件已加入 {home / "cordis.patch.yml"}，'
           f'DeepSeek 官方路由的地址在同一处指向 Mask 网关 {gateway.URL}/dsh\n重启 DeepSeek Harness 后生效。')
 
@@ -115,4 +134,5 @@ def uninstall():
     home = dsh_home()
     shutil.rmtree(home / 'skills/mask', ignore_errors=True)
     _patch(home / 'cordis.patch.yml', '')
+    _written().unlink(missing_ok=True)
     print(f'已从 {home} 移除 Mask 的技能、拦截插件和网关地址。重启 DeepSeek Harness 后生效，此后它的请求不再经过 Mask。')

@@ -6,17 +6,15 @@ paths only: no names, no originals, no workbench link.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 import time
 
 import requests
 
 from .. import store
-from ..official import ROOT
 from ..project import Project, data_dir
+from . import launch
 
 
 def _reopen(control: Path):
@@ -37,10 +35,7 @@ def start(workspace: Path):
     control = folder / 'control.mask'
     if not (control.exists() and _reopen(control)):
         control.unlink(missing_ok=True)
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        with (folder / 'workbench.log').open('ab') as log:
-            process = subprocess.Popen([sys.executable, '-m', 'mask', 'workbench', '--workspace', str(workspace), '--host'],
-                                       cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
+        process = launch(['workbench', '--workspace', str(workspace), '--host'], folder / 'workbench.log')
         deadline = time.monotonic() + 30
         while not control.exists():
             if process.poll() is not None or time.monotonic() > deadline:

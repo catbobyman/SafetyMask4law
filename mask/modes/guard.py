@@ -8,6 +8,7 @@ checksum. It does not run the recognition model: nobody reviews its decisions.
 """
 from __future__ import annotations
 
+from collections import Counter
 import json
 from pathlib import Path
 import sys
@@ -15,7 +16,19 @@ import sys
 from .. import store
 from ..categories import STRICT, pattern_hits
 from ..project import Project, data_dir, find
-from ..vault import Vault
+from ..vault import Vault, replacer
+
+
+def checker(replace):
+    """(text, tags, strict): text(s) replaces known originals in one string through `replace`, counting the tags
+    written into `tags` and adding the categories of unmasked checksum-valid numbers left in it to `strict`."""
+    tags, strict = Counter(), set()
+    def text(value):
+        value, used = replace(value)
+        tags.update(used)
+        strict.update(kind for _, _, kind in pattern_hits(value, STRICT))
+        return value
+    return text, tags, strict
 
 
 def scrub(value, vault: Vault):
@@ -23,20 +36,16 @@ def scrub(value, vault: Vault):
 
     Returns (value, replaced, strict) where strict lists categories of unmasked checksum-valid numbers left in it.
     """
-    replaced, strict = 0, set()
+    text, tags, strict = checker(replacer(vault.forms(escaped=True)))
     def walk(v):
-        nonlocal replaced
         if isinstance(v, str):
-            v, n = vault.redact(v, escaped=True)
-            replaced += n
-            strict.update(kind for _, _, kind in pattern_hits(v, STRICT))
-            return v
+            return text(v)
         if isinstance(v, list):
             return [walk(x) for x in v]
         if isinstance(v, dict):
             return {k: walk(x) for k, x in v.items()}
         return v
-    return walk(value), replaced, sorted(strict)
+    return walk(value), sum(tags.values()), sorted(strict)
 
 
 def load_vault(workspace: Path):

@@ -10,21 +10,17 @@ conversation. The gateway does not run the recognition model: nobody reviews its
 """
 from __future__ import annotations
 
-from collections import Counter
 import json
-import os
-import subprocess
-import sys
 import time
 import traceback
 from urllib.parse import urlsplit
 from urllib.request import getproxies, proxy_bypass
 
 from .. import payload, store
-from ..categories import STRICT, pattern_hits
-from ..official import ROOT
 from ..project import app_dir, data_dir, find
 from ..vault import Vault, replacer
+from . import launch
+from .guard import checker
 
 PORT = 8788
 URL = f'http://127.0.0.1:{PORT}'
@@ -47,13 +43,14 @@ class Vaults:
 
     def of(self, cwd):
         """(project label for the record, {original: tag}, replacer)."""
-        if cwd is None:
-            # A request without the agent's environment (a session title) can still quote what the user typed,
-            # so every project's originals are replaced; the reply to such a request is never restored.
-            label, files = '*', list((app_dir() / 'projects').glob('*/vault.mask'))
+        workspace = find(cwd) if cwd is not None else None
+        if workspace:
+            label, files = data_dir(workspace).name, [data_dir(workspace) / 'vault.mask']
         else:
-            workspace = find(cwd)
-            label, files = (data_dir(workspace).name, [data_dir(workspace) / 'vault.mask']) if workspace else (None, [])
+            # A request without the agent's environment (a session title), or from a folder outside every project,
+            # can still quote what the user typed or read, so every project's originals are replaced; the reply
+            # to such a request is never restored.
+            label, files = '*' if cwd is None else None, list((app_dir() / 'projects').glob('*/vault.mask'))
         # The same original in two projects takes the tag of the project changed last.
         stamps = sorted(((f.stat().st_mtime_ns, f) for f in files), reverse=True)
         if self.cache.get(label, [None])[0] != stamps:
@@ -80,12 +77,7 @@ def prepare(vaults: Vaults, raw: bytes):
         # The model only ever sees the tag, so the paths in its tool calls would not exist.
         raise Refused('path', f'工作目录的路径里含有已脱敏的 {named}。模型只见过代号，按这个路径读写文件会失败；'
                               '请把材料放到路径里不含该名称的文件夹再处理', project=label)
-    tags, strict = Counter(), set()
-    def text(value):
-        value, used = replace(value)
-        tags.update(used)
-        strict.update(kind for _, _, kind in pattern_hits(value, STRICT))
-        return value
+    text, tags, strict = checker(replace)
     body = payload.rewrite(body, text)
     if strict:
         raise Refused('strict', f'请求含未脱敏的{"、".join(sorted(strict))}号码，请先在工作台处理该材料',
@@ -104,6 +96,7 @@ def log(record):
 def create_app(transport=None):
     import httpx
     from starlette.applications import Starlette
+    from starlette.concurrency import run_in_threadpool
     from starlette.responses import JSONResponse, StreamingResponse
     from starlette.routing import Route
 
@@ -133,22 +126,23 @@ def create_app(transport=None):
             return refuse(f'网关不认识 /{agent}', 404)
         record = {'t': time.strftime('%Y-%m-%dT%H:%M:%S'), 'agent': agent}
         last[agent] = record['t']
-        def done(status, **more):
-            log({**record, **more, 'status': status})
+        # Checking and logging run off the event loop, so the replies streaming meanwhile are not held up.
+        async def done(status, **more):
+            await run_in_threadpool(log, {**record, **more, 'status': status})
         try:
             if request.headers.get('content-encoding'):
                 raise Refused('encoding', f'请求体经 {request.headers["content-encoding"]} 压缩，无法检查', 415)
             body = await request.body()
             if body:
-                body, found = prepare(vaults, body)
+                body, found = await run_in_threadpool(prepare, vaults, body)
                 record.update(found)
         except Refused as refused:
-            done(refused.status, refused=refused.kind, **refused.record)
+            await done(refused.status, refused=refused.kind, **refused.record)
             return refuse(str(refused), refused.status)
         except Exception as exc:
             # A request that could not be checked is not sent.
             traceback.print_exc()
-            done(503, refused='error')
+            await done(503, refused='error')
             return refuse(f'检查请求时出错，未发送（{type(exc).__name__}）。详见 {app_dir() / "gateway" / "gateway.log"}', 503)
         # The time the gateway itself added, not the model's.
         record['ms'] = round((time.monotonic() - started) * 1000)
@@ -158,9 +152,9 @@ def create_app(transport=None):
         try:
             response = await clients[agent].send(outgoing, stream=True)
         except httpx.HTTPError as exc:
-            done(502)
+            await done(502)
             return refuse(f'连接不上模型服务 {AGENTS[agent]}（{type(exc).__name__}）', 502)
-        done(response.status_code)
+        await done(response.status_code)
         async def reply():
             try:
                 async for chunk in response.aiter_raw():
@@ -194,6 +188,8 @@ def health():
         reply = session.get(f'{URL}/mask/health', timeout=3)
     except requests.ConnectionError:
         return None
+    except requests.Timeout:
+        raise SystemExit(f'端口 {PORT} 上的程序 3 秒内没有应答，Mask 网关可能卡住了，详见 {app_dir() / "gateway" / "gateway.log"}')
     if reply.headers.get('X-Mask') != 'gateway':
         raise SystemExit(f'端口 {PORT} 被别的程序占用，Mask 网关无法启动')
     return reply.json()['agents']
@@ -206,7 +202,8 @@ def running():
 def records(day: str):
     """The request records of one day, oldest first."""
     file = app_dir() / 'gateway' / f'{day}.jsonl'
-    return [json.loads(line) for line in file.read_text(encoding='utf-8').splitlines()] if file.exists() else []
+    # The gateway may be writing the last line right now: only lines that end in a newline are complete.
+    return [json.loads(line) for line in file.read_text(encoding='utf-8').split('\n')[:-1]] if file.exists() else []
 
 
 def start():
@@ -215,10 +212,7 @@ def start():
         return
     folder = app_dir() / 'gateway'
     folder.mkdir(parents=True, exist_ok=True)
-    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-    with (folder / 'gateway.log').open('ab') as output:
-        process = subprocess.Popen([sys.executable, '-m', 'mask', 'gateway'], cwd=ROOT, stdin=subprocess.DEVNULL,
-                                   stdout=output, stderr=subprocess.STDOUT, creationflags=flags)
+    process = launch(['gateway'], folder / 'gateway.log')
     deadline = time.monotonic() + 30
     while not running():
         if process.poll() is not None or time.monotonic() > deadline:
