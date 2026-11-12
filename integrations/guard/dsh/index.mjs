@@ -2,7 +2,7 @@
 // each typed prompt and each file, search or shell tool call to `python -m mask guard hook` as a
 // Claude Code hook event and applies the answer. `mask.cmd install dsh` adds it to the dsh home patch
 // with `config: {python, root}`. The same install points dsh's DeepSeek route at the Mask gateway
-// (DEEPSEEK_BASE_URL in the dsh home .env), so the plugin also starts the gateway whenever dsh starts.
+// (a baseURL row in the same patch block), so the plugin also starts the gateway whenever dsh starts.
 import { spawn } from 'node:child_process'
 
 export const name = 'mask-guard'
