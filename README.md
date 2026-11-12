@@ -2,15 +2,16 @@
 
 TXT、DOCX、原生 PDF 的本地脱敏：导入 → 本机 HaS 识别 → 原文核对 → 原格式 / Markdown 导出 → 文本代号还原。
 
-同一套核心有三种使用方式，代码结构和各模式的边界见 [架构与模式](docs/架构与模式.md)：
+同一套核心有四种使用方式，代码结构和各模式的边界见 [架构与模式](docs/架构与模式.md)：
 
 | 模式 | 命令 | 用途 |
 | --- | --- | --- |
 | 工作台 | `python -m mask` | 在浏览器里选材料、核对、导出、还原 |
 | Skill | `mask.cmd skill start` / `status` | 宿主（Claude Code、Codex、WorkBuddy）的技能打开工作台，用户点“交给 AI”后宿主读取脱敏稿 |
-| 拦截 | `mask.cmd guard hook` / `proxy` | 拦下或改写宿主发往模型的内容里已脱敏过的真名 |
+| 拦截 | `mask.cmd guard hook` | 宿主的提问含已脱敏过的真名、或工具要读原件时拦下 |
+| 网关 | `mask.cmd gateway` | 已接入的 Agent 发往模型的请求先经过本机网关，已确认的真名换成代号后再转发 |
 
-拦截插件已在本机的 DeepSeek Harness 0.2.1-rc.3（headless）里验证；Skill 尚未在真实宿主里调用，Claude Code、Codex、WorkBuddy 未验证。
+拦截插件已在本机的 DeepSeek Harness 0.2.1-rc.3（headless）里验证；网关已在本机的 DeepSeek Harness 0.2.2-rc.1（headless）里接入并验证：对话正常，已确认的名字发出前换成了代号；Skill 尚未在真实宿主里调用，Claude Code、Codex、WorkBuddy 未验证。
 
 ## 启动
 
@@ -31,14 +32,15 @@ python -m mask --workspace "D:\案件材料"
 
 ### 接入宿主
 
-- **DeepSeek Harness（dsh）**：`mask.cmd install dsh` 把技能写入 `~/.dsh/skills/mask/`，并把拦截插件加进 `~/.dsh/cordis.patch.yml`（只增删两行标记之间的内容）；`mask.cmd uninstall dsh` 移除。重启 dsh 后生效。工作台的“接入 Agent”面板（选材料页的链接，或 `⋯ → 接入 Agent`）里每个 Agent 一个开关，开和关就是这两条命令；Codex、Claude Code 目前是占位。dsh 没有命令式 hook，拦截是 `integrations/guard/dsh/index.mjs` 这个插件，它把每次提问和文件、搜索、shell 工具调用交给 `guard hook` 判断。
+- **DeepSeek Harness（dsh）**：`mask.cmd install dsh` 做三件事：把技能写入 `~/.dsh/skills/mask/`；启动网关；在 `~/.dsh/cordis.patch.yml` 里加一块，内含拦截插件和 DeepSeek 官方路由的地址 `http://127.0.0.1:8788/dsh`（只增删两行标记之间的内容）。`mask.cmd uninstall dsh` 移除。重启 dsh 后生效。接入后 dsh 每次启动时由拦截插件带起网关；网关没有运行时 dsh 的请求发不出去。只有走 DeepSeek 官方路由（API Key）的模型经过网关，在 dsh 里选了其他提供方的模型时不经过。dsh 的配置里已有 `llm-deepseek` 一项时安装会拒绝；接入后在 dsh 的模型设置里改 DeepSeek 路由的设置不会生效。工作台的“接入 Agent”面板（选材料页的链接，或 `⋯ → 接入 Agent`）里每个 Agent 一个开关，开和关就是这两条命令；Codex、Claude Code 目前是占位。dsh 没有命令式 hook，拦截是 `integrations/guard/dsh/index.mjs` 这个插件，它把每次提问和文件、搜索、shell 工具调用交给 `guard hook` 判断。
 - **不经宿主启动工作台时**：主按钮是“交给 Agent”，脱敏稿写入工作目录的 `mask-handoff/`，完成页的“复制给 Agent 的指令”给出文件夹位置和代号用法，粘贴到 Agent 对话里再写需求。
 
 其他宿主需手工接入：
 
 - **Skill**：把 `integrations/skill/mask/` 复制到宿主的技能目录，将 `SKILL.md` 里的 `<MASK>` 换成本项目路径。在宿主对话输入 `/mask`（Codex 为 `$mask`）和需求。工作台的主按钮变为“交给 AI”，脱敏稿写入工作目录的 `mask-handoff/`。
 - **拦截 hook**：把 `integrations/guard/claude-code.settings.example.json` 的内容并入宿主的 hook 配置。对话里出现已脱敏的真名时，这句话不会发出，并提示对应代号；宿主读取已导入的原件时被拒绝。
-- **拦截代理**：`mask.cmd guard proxy --workspace "D:\案件材料" --upstream https://api.anthropic.com`，再把宿主的模型地址指向 `http://127.0.0.1:8788`。请求里已确认过的原文在转发前换成代号。
+
+网关目前只接 DeepSeek Harness，设计和后续步骤见 [网关方案](docs/网关方案.md)。它取代了原来的 `guard proxy`。
 
 ## 操作
 

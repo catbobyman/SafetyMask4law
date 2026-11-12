@@ -1,11 +1,7 @@
 """Guard mode: keep known originals out of what a host sends to its cloud model.
 
-Two interception points share one check (`scrub`):
-- hook: the host runs `python -m mask guard hook` before a prompt is submitted or a tool is used.
-  A hook can refuse, not rewrite.
-- proxy: the host's model endpoint points at `python -m mask guard proxy`; every request body is
-  rewritten before it is forwarded. This is the only point that sees typed text, @-references,
-  tool results and compaction alike.
+The host runs `python -m mask guard hook` before a prompt is submitted or a tool is used. A hook can
+refuse, not rewrite; rewriting what goes to the model is the gateway's job (modes/gateway.py).
 
 The guard knows what the user already confirmed in the workbench (the vault) and values with a
 checksum. It does not run the recognition model: nobody reviews its decisions.
@@ -97,57 +93,3 @@ def run_hook():
     if result:
         print(json.dumps(result, ensure_ascii=False))
 
-
-def create_proxy(upstream: str, vault_source, transport=None):
-    import httpx
-    from starlette.applications import Starlette
-    from starlette.background import BackgroundTask
-    from starlette.responses import JSONResponse, StreamingResponse
-    from starlette.routing import Route
-
-    # A reply may stream for minutes; only connecting is bounded.
-    client = httpx.AsyncClient(base_url=upstream, timeout=httpx.Timeout(None, connect=15), transport=transport)
-
-    def refuse(message, status=400):
-        # Shape read by both Anthropic and OpenAI clients; the host shows the message to the user.
-        return JSONResponse({'type': 'error', 'error': {'type': 'invalid_request_error', 'message': message}}, status_code=status)
-
-    async def forward(request):
-        body = await request.body()
-        if body:
-            try:
-                data = json.loads(body)
-            except ValueError:
-                return refuse('Mask 已拦截：请求不是 JSON，无法检查其中是否含未脱敏内容')
-            data, _, strict = scrub(data, vault_source())
-            if strict:
-                return refuse(f'Mask 已拦截：请求含未脱敏的{"、".join(strict)}号码，请先在工作台处理该材料')
-            body = json.dumps(data, ensure_ascii=False).encode('utf-8')
-        headers = [(k, v) for k, v in request.headers.items() if k.lower() not in {'host', 'content-length'}]
-        outgoing = client.build_request(request.method, request.url.path, params=request.url.query, headers=headers, content=body)
-        try:
-            response = await client.send(outgoing, stream=True)
-        except httpx.HTTPError as exc:
-            return refuse(f'Mask 代理连接不上模型服务 {upstream}：{type(exc).__name__}', 502)
-        # The reply is passed through untouched: real names are restored in the workbench, never in the host conversation.
-        passed = {k: v for k, v in response.headers.items() if k.lower() not in {'content-length', 'transfer-encoding', 'connection'}}
-        return StreamingResponse(response.aiter_raw(), status_code=response.status_code, headers=passed,
-                                 background=BackgroundTask(response.aclose))
-
-    return Starlette(routes=[Route('/{path:path}', forward, methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])])
-
-
-def run_proxy(workspace: Path, upstream: str, port: int):
-    import uvicorn
-    file = data_dir(workspace) / 'vault.mask'
-    if not file.exists():
-        raise SystemExit('这个目录还没有 Mask 项目，请先在工作台处理材料')
-    cache = {}
-    def vault():
-        # The workbench keeps confirming new subjects while the proxy runs.
-        stamp = file.stat().st_mtime_ns
-        if cache.get('stamp') != stamp:
-            cache.update(stamp=stamp, vault=Vault(store.read(file)))
-        return cache['vault']
-    print(f'Mask 拦截代理: http://127.0.0.1:{port} → {upstream}', flush=True)
-    uvicorn.run(create_proxy(upstream, vault), host='127.0.0.1', port=port, log_level='warning', access_log=False)

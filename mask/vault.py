@@ -57,6 +57,20 @@ def imported(mapping):
     return {tag: values[0] for tag, values in normalize_mapping_dict(mapping).items()}
 
 
+def replacer(forms):
+    """A function that replaces every key of forms by its tag, longest first, and returns (text, tags written)."""
+    if not forms:
+        return lambda text: (text, [])
+    pattern = re.compile('|'.join(re.escape(f) for f in sorted(forms, key=len, reverse=True)))
+    def run(text):
+        used = []
+        def one(match):
+            used.append(forms[match.group()])
+            return used[-1]
+        return pattern.sub(one, text), used
+    return run
+
+
 class Vault:
     def __init__(self, data=None):
         self.data = data or {'entities': {}, 'mapping': {}, 'issued': [], 'reserved': []}
@@ -120,20 +134,19 @@ class Vault:
     def public_entities(self):
         return {key: {**e, 'variants': self.variants(key)} for key, e in self.entities.items()}
 
-    def redact(self, text, escaped=False):
-        """Replace every known original by its tag, longest first. Returns (text, replacements).
-
-        escaped also matches originals written with JSON \\uXXXX escapes, as they appear in JSON nested inside a string.
-        """
+    def forms(self, escaped=False):
+        """{original: tag}. escaped adds originals written with JSON \\uXXXX escapes, as in JSON nested inside a string."""
         forms = {}
         for tag, original in self.mapping.items():
             forms.setdefault(original, tag)
             if escaped:
                 forms.setdefault(json.dumps(original)[1:-1], tag)
-        if not forms:
-            return text, 0
-        pattern = re.compile('|'.join(re.escape(f) for f in sorted(forms, key=len, reverse=True)))
-        return pattern.subn(lambda m: forms[m.group()], text)
+        return forms
+
+    def redact(self, text, escaped=False):
+        """Replace every known original by its tag, longest first. Returns (text, replacements)."""
+        text, used = replacer(self.forms(escaped))(text)
+        return text, len(used)
 
     def restore(self, text, fixes=None):
         return restore(text, self.mapping, fixes)

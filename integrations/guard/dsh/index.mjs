@@ -1,7 +1,8 @@
 // Mask guard for DeepSeek Harness (dsh). dsh has no command hooks, so this is a cordis plugin: it hands
 // each typed prompt and each file, search or shell tool call to `python -m mask guard hook` as a
 // Claude Code hook event and applies the answer. `mask.cmd install dsh` adds it to the dsh home patch
-// with `config: {python, root}`.
+// with `config: {python, root}`. The same install points dsh's DeepSeek route at the Mask gateway
+// (DEEPSEEK_BASE_URL in the dsh home .env), so the plugin also starts the gateway whenever dsh starts.
 import { spawn } from 'node:child_process'
 
 export const name = 'mask-guard'
@@ -24,6 +25,11 @@ function ask(config, event) {
 }
 
 export function apply(ctx, config) {
+  // `gateway start` returns at once when the gateway is already listening. If it cannot be started, dsh's
+  // model requests fail to connect, which shows; the error is printed, not thrown, so dsh still boots.
+  spawn(config.python, ['-m', 'mask', 'gateway', 'start'], { cwd: config.root, windowsHide: true, detached: true, stdio: 'ignore' })
+    .on('error', (error) => console.error(`Mask 网关未能启动：${error.message}`)).unref()
+
   ctx.on('tools/pre-execute', async (exec, next) => {
     const input = exec.arguments ?? {}
     const search = exec.name === 'grep' || exec.name === 'glob'

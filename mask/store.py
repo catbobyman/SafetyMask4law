@@ -9,6 +9,7 @@ import ctypes
 from ctypes import wintypes
 import json
 from pathlib import Path
+import time
 
 MAGIC = b'MASK1\n'
 
@@ -34,7 +35,15 @@ def _dpapi(name, data):
 def write(path: Path, value):
     temp = path.with_suffix('.tmp')
     temp.write_bytes(MAGIC + _dpapi('CryptProtectData', json.dumps(value, ensure_ascii=False).encode('utf-8')))
-    temp.replace(path)
+    # Windows refuses the rename while another process (the gateway, a second workbench) has the file open to read.
+    for attempt in range(50):
+        try:
+            temp.replace(path)
+            return
+        except PermissionError:
+            if attempt == 49:
+                raise
+            time.sleep(.01)
 
 
 def read(path: Path):

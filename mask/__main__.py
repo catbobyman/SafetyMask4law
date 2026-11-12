@@ -2,8 +2,9 @@
 
 python -m mask [workbench]            local workbench in the browser
 python -m mask skill start|status     commands run by a host skill
-python -m mask guard hook|proxy       keep known originals out of host requests
-python -m mask install|uninstall dsh  put the skill and the guard into DeepSeek Harness
+python -m mask guard hook             refuse a host prompt or tool call that would expose originals
+python -m mask gateway [start]        rewrite the model requests of connected agents; start: in the background
+python -m mask install|uninstall dsh  put the skill, the guard and the gateway address into DeepSeek Harness
 """
 from __future__ import annotations
 
@@ -33,13 +34,12 @@ def main():
 
     guard = modes.add_parser('guard', help='拦截模式').add_subparsers(dest='command', required=True)
     guard.add_parser('hook', help='宿主 hook：从标准输入读事件，输出放行或拦截')
-    proxy = guard.add_parser('proxy', help='本地代理：改写发往模型的请求')
-    workspace(proxy)
-    proxy.add_argument('--upstream', required=True, help='模型服务地址，如 https://api.anthropic.com')
-    proxy.add_argument('--port', type=int, default=8788)
+
+    modes.add_parser('gateway', help='本机网关：改写已接入 Agent 发往模型的请求').add_argument(
+        'command', nargs='?', choices=['start'], help='start：在后台启动，已在运行则不动')
 
     for command in ('install', 'uninstall'):
-        modes.add_parser(command, help='把技能和拦截装入宿主 / 从宿主移除').add_argument('host', choices=['dsh'], help='dsh：DeepSeek Harness')
+        modes.add_parser(command, help='把技能、拦截和网关地址装入宿主 / 从宿主移除').add_argument('host', choices=['dsh'], help='dsh：DeepSeek Harness')
 
     args = parser.parse_args()
     if args.mode in ('install', 'uninstall'):
@@ -50,7 +50,10 @@ def main():
         mode.start(args.workspace) if args.command == 'start' else mode.status(args.workspace, args.wait)
     elif args.mode == 'guard':
         from .modes import guard as mode
-        mode.run_hook() if args.command == 'hook' else mode.run_proxy(args.workspace, args.upstream, args.port)
+        mode.run_hook()
+    elif args.mode == 'gateway':
+        from .modes import gateway as mode
+        mode.start() if args.command else mode.run()
     else:
         from .modes.workbench import run
         run(args.workspace, args.port, not args.no_browser, args.host)

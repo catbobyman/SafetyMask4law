@@ -2,15 +2,16 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from mask.categories import all_categories, default_categories, pattern_hits
-from mask.modes import guard
+from mask.modes import gateway, guard
 from mask.modes.workbench import create_app
-from mask.project import Project
+from mask.project import Project, app_dir
 
 ID = '11010519491231002X'
 TEXT = f'原告张三，身份证{ID}，1985年3月2日出生，就职于星河示例科技有限公司。'
@@ -87,12 +88,22 @@ installed_block = lambda patch: 'mask-guard' in patch.read_text(encoding='utf-8'
 def test_dsh_install_touches_only_its_own_block(tmp_path, monkeypatch):
     from mask.modes import install
     monkeypatch.setenv('DSH_HOME', str(tmp_path))
+    started = []
+    monkeypatch.setattr(install.gateway, 'start', lambda: started.append(1))
     patch = tmp_path / 'cordis.patch.yml'
+    # Mask's address row would replace a DeepSeek route the user configured, in the home patch or in a profile's.
+    for own in (patch, tmp_path / 'profiles/web/cordis.patch.yml'):
+        own.parent.mkdir(parents=True, exist_ok=True)
+        own.write_text('- id: llm-deepseek\n  config: {reasoningEffort: max}\n', encoding='utf-8')
+        with pytest.raises(SystemExit):
+            install.install()
+        assert 'mask' not in own.read_text(encoding='utf-8') and not started and not (tmp_path / 'skills').exists()
+        own.unlink()
     for mine, emptied in [('# mine\n- id: ui-theme\n  config: {preference: dark}\n', None), ('# shipped\n[]\n', '# shipped\n[]\n'), (None, None)]:
         patch.write_text(mine, encoding='utf-8') if mine else patch.unlink(missing_ok=True)
         install.install(); install.install()
         text = patch.read_text(encoding='utf-8')
-        assert text.count('mask-guard') == 1 and '[]' not in text and '<MASK>' not in (tmp_path / 'skills/mask/SKILL.md').read_text(encoding='utf-8')
+        assert text.count('mask-guard') == 1 and text.count('baseURL: "http://127.0.0.1:8788/dsh"') == 1 and started and '[]' not in text and '<MASK>' not in (tmp_path / 'skills/mask/SKILL.md').read_text(encoding='utf-8')
         install.uninstall()
         assert not (tmp_path / 'skills/mask').exists()
         # A patch file without rows stops dsh from booting, so the empty layer comes back.
@@ -133,7 +144,7 @@ def test_handoff_and_host_status(tmp_path, monkeypatch):
     assert '张三' not in printed and '起诉状' not in printed
 
 
-def test_guard_hook_and_proxy(tmp_path, monkeypatch):
+def test_guard_hook(tmp_path, monkeypatch):
     project = masked_project(tmp_path, monkeypatch)
     cwd = str(project.workspace)
     prompt = lambda text, where=cwd: guard.hook({'hook_event_name': 'UserPromptSubmit', 'cwd': where, 'prompt': text})
@@ -152,20 +163,58 @@ def test_guard_hook_and_proxy(tmp_path, monkeypatch):
     assert grep(cwd + '/mask-handoff', path='..')['hookSpecificOutput']['permissionDecision'] == 'deny'
     assert grep(cwd + '/mask-handoff') is None and grep(cwd, path='mask-handoff') is None
 
+
+def test_gateway_rewrites_text_and_keeps_protocol(tmp_path, monkeypatch):
+    project = masked_project(tmp_path, monkeypatch)
     seen = []
     async def upstream(request):
         seen.append(await request.json())
         return JSONResponse({'content': NAME})
-    proxy = guard.create_proxy('http://upstream', lambda: project.vault,
-                               httpx.ASGITransport(app=Starlette(routes=[Route('/v1/messages', upstream, methods=['POST'])])))
-    with TestClient(proxy) as client:
-        nested = json.dumps({'query': '张三'})  # tool arguments: JSON inside a string, non-ASCII escaped
-        response = client.post('/v1/messages', json={'max_tokens': 5, 'messages': [
-            {'role': 'user', 'content': '张三起诉星河示例科技有限公司'}, {'role': 'assistant', 'content': [{'input': nested}]}]})
+    # dsh states its folder as a JSON string inside a runtime-context text block.
+    context = lambda folder: {'type': 'text', 'text': f'Current working directory: {json.dumps(str(folder))}.'}
+    sealed = {'type': 'thinking', 'thinking': '张三', 'signature': 'c2ln'}
+    schema = {'type': 'object', 'properties': {'张三': {'type': 'string', 'description': '查张三'}}}
+    request = lambda folder: {
+        'model': 'deepseek-flash', 'max_tokens': 5, 'system': [{'type': 'text', 'text': '用户是张三的代理人'}],
+        'tools': [{'name': '张三', 'description': '查张三的案件', 'input_schema': schema}],
+        'messages': [
+            {'role': 'user', 'content': [*([context(folder)] if folder else []), {'type': 'text', 'text': '张三起诉星河示例科技有限公司'}]},
+            {'role': 'assistant', 'content': [sealed, {'type': 'tool_use', 'id': 'toolu_张三', 'name': '张三',
+                                                       'input': {'name': '张三', 'nested': json.dumps({'query': '张三'})}}]},
+            {'role': 'user', 'content': [{'type': 'tool_result', 'tool_use_id': 'toolu_张三', 'content': [{'type': 'text', 'text': '张三'}]},
+                                         {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': '张三'}}]}]}
+    app = gateway.create_app(httpx.ASGITransport(app=Starlette(routes=[Route('/anthropic/v1/messages', upstream, methods=['POST'])])))
+    with TestClient(app) as client:
+        send = lambda body, agent='dsh': client.post(f'/{agent}/v1/messages', json=body)
         # The reply keeps its tags: real names are restored in the workbench only.
-        assert response.json() == {'content': NAME}
-        assert seen[0]['messages'][0]['content'] == NAME + '起诉' + COMPANY and seen[0]['max_tokens'] == 5
-        assert json.loads(seen[0]['messages'][1]['content'][0]['input']) == {'query': NAME}
-        assert client.post('/v1/messages', json={'messages': '证件 110101199003074610'}).status_code == 400
-        assert client.post('/v1/messages', content=b'not json').status_code == 400
-        assert len(seen) == 1
+        assert send(request(project.workspace / 'sub')).json() == {'content': NAME}
+        sent = seen[0]
+        assert sent['system'][0]['text'] == f'用户是{NAME}的代理人' and sent['messages'][0]['content'][1]['text'] == NAME + '起诉' + COMPANY
+        # What the model wrote for a tool is text under the tool's own keys; JSON nested in a string is escaped.
+        call = sent['messages'][1]['content'][1]
+        assert call['input']['name'] == NAME and json.loads(call['input']['nested']) == {'query': NAME}
+        assert sent['messages'][2]['content'][0]['content'][0]['text'] == NAME
+        # What the vendor matches, decodes or verifies goes out as written.
+        assert call['name'] == '张三' and call['id'] == sent['messages'][2]['content'][0]['tool_use_id'] == 'toolu_张三'
+        assert sent['messages'][1]['content'][0] == sealed and sent['messages'][2]['content'][1]['source']['data'] == '张三'
+        assert sent['tools'] == [{'name': '张三', 'description': f'查{NAME}的案件', 'input_schema': {
+            'type': 'object', 'properties': {'张三': {'type': 'string', 'description': f'查{NAME}'}}}}]
+        assert sent['model'] == 'deepseek-flash' and sent['max_tokens'] == 5
+
+        # A folder without a project: nothing to replace. No folder stated: every project's originals are replaced.
+        send(request(tmp_path / 'elsewhere')), send(request(None))
+        assert '张三起诉' in seen[1]['messages'][0]['content'][1]['text'] and seen[2]['messages'][0]['content'][0]['text'].startswith(NAME)
+
+        refused = lambda response: (response.status_code, response.json()['error']['message'])
+        # A number the user never confirmed in the workbench; its checksum is valid.
+        assert refused(send({'messages': [{'role': 'user', 'content': '证件 110101199003074610'}]}))[0] == 400
+        assert client.post('/dsh/v1/files', content=b'not json').status_code == 400
+        # The model would get a path it cannot use; the message names the tag, not the original.
+        status, message = refused(send(request(project.workspace / '张三')))
+        assert status == 400 and NAME in message and '张三' not in message
+        assert send({}, 'other').status_code == 404 and len(seen) == 3
+        assert client.get('/mask/health').json()['agents'].keys() == {'dsh'}
+    records = [json.loads(line) for file in (app_dir() / 'gateway').glob('*.jsonl') for line in file.read_text(encoding='utf-8').splitlines()]
+    assert [r['status'] for r in records] == [200, 200, 200, 400, 400, 400] and records[0]['tags'][NAME] == 7
+    assert records[0]['project'] == project.directory.name and records[2]['project'] == '*' and records[3]['strict'] == ['身份证']
+    assert '张三' not in json.dumps(records, ensure_ascii=False) and str(tmp_path) not in json.dumps(records)
