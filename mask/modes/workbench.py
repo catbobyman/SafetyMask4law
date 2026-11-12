@@ -14,13 +14,13 @@ import threading
 import time
 import webbrowser
 
-from fastapi import FastAPI, Request, UploadFile, File
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
 from .. import store
-from ..documents import decode_text
+from ..documents import decode_text, result_text
 from ..official import ROOT, Recognizer, normalize_mapping_dict
 from ..project import Project, initial_scope, save_initial_scope
 from . import gateway, install
@@ -275,9 +275,18 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
 
     @app.post('/api/read-result')
     def read_result(file: UploadFile = File(...)):
-        if Path(file.filename or '').suffix.lower() not in {'.txt', '.md'}:
-            raise ValueError('还原结果请提供 TXT 或 Markdown，或直接粘贴文字')
-        return {'text': decode_text(file.file.read())[0]}
+        ext = Path(file.filename or '').suffix.lower()
+        if ext not in {'.txt', '.md', '.docx'}:
+            raise ValueError('还原结果请提供 TXT、Markdown 或 Word（.docx），或直接粘贴文字')
+        data = file.file.read()
+        return {'text': result_text(data) if ext == '.docx' else decode_text(data)[0]}
+
+    @app.post('/api/restore-word')
+    def restore_word(file: UploadFile = File(...), choices: str = Form(...)):
+        # choices is the JSON of {fixes, mapping}, the same two fields as /api/restore.
+        chosen = json.loads(choices)
+        with lock:
+            return project.restore_word(file.file.read(), chosen['fixes'], chosen['mapping'])
 
     @app.post('/api/read-mapping')
     def read_mapping(file: UploadFile = File(...)):

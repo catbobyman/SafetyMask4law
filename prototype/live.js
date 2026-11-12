@@ -3,6 +3,8 @@ let liveRevision=0,liveMapping={},liveFiles=[],liveBusy=false,liveError='',liveR
 let editVersion=0,savedVersion=0,saveTimer=null,savingPromise=null;
 // An imported mapping file replaces the project mapping for restore only; it is never merged into the project.
 let liveRestoreMapping=null;
+// A Word AI result is restored into a Word file; it is kept until the text on the restore page is replaced.
+let liveResultWord=null;
 // Workbench opened by a host skill: exporting Markdown hands it to the workspace.
 let liveHost=false,liveCatalog=[],liveScope=null,liveDefaultScope=[],liveHosts=[];
 const restoreMapping=()=>liveRestoreMapping?Object.fromEntries(Object.entries(liveRestoreMapping.mapping).map(([t,v])=>[t,v[0]])):liveMapping;
@@ -167,7 +169,7 @@ restorePage=function(){
     const primary=source+(fixable?`<button class="isl-btn" data-a="accept-suggest" title="把形状被改动的代号按格式还原后的代号处理">${icon('check',15)}<span class="lbl">采用 ${fixable} 个格式建议</span></button>`:'')+(r.missing.length?act({cls:'todo',a:'next-miss',title:'下一处没有映射的代号',inner:`<b>${r.missing.length}</b><span class="lbl">个代号没有映射</span>${icon('next',14)}`,key:'missing'+r.missing.length}):act({cls:'save',a:'save-restored',title:save,inner:`${icon('down',15)}<span class="lbl">${save}</span>`,disabled:liveBusy,key:'save'}));
     return bar({title:'AI 结果',island:restoreIsland(status,primary)})+`<main class="canvas" id="canvas" data-k="p-restore">${restorePaper(r)}</main>`;
   }
-  return bar({title:'还原结果'})+`<main class="center" data-k="p-restore-input"><h1 class="ask">还原 AI 结果中的代号</h1><p class="quiet">${liveRestoreMapping?`使用映射文件 ${esc(liveRestoreMapping.name)}（${Object.keys(liveRestoreMapping.mapping).length} 个代号），不并入本项目`:'使用本项目已保存的映射'}，真名版只保存到本机</p><button class="cta" data-a="restore-file">打开 TXT / Markdown 结果文件</button>${liveRestoreMapping?'<button class="alt" data-a="clear-mapping">改用本项目映射</button>':'<button class="alt" data-a="mapping-file">改用映射文件（mapping.json）</button>'}</main>`+dock('restore',`<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴含代号的文本"></textarea></label>`);
+  return bar({title:'还原结果'})+`<main class="center" data-k="p-restore-input"><h1 class="ask">还原 AI 结果中的代号</h1><p class="quiet">${liveRestoreMapping?`使用映射文件 ${esc(liveRestoreMapping.name)}（${Object.keys(liveRestoreMapping.mapping).length} 个代号），不并入本项目`:'使用本项目已保存的映射'}，真名版只保存到本机</p><button class="cta" data-a="restore-file">打开 TXT / Markdown / Word 结果文件</button>${liveRestoreMapping?'<button class="alt" data-a="clear-mapping">改用本项目映射</button>':'<button class="alt" data-a="mapping-file">改用映射文件（mapping.json）</button>'}</main>`+dock('restore',`<label class="field"><textarea id="paste" rows="1" aria-label="AI 结果" placeholder="粘贴含代号的文本"></textarea></label>`);
 };
 const handName=()=>liveHost?'交给 AI':'交给 Agent';
 function exportDialog(kind){
@@ -332,7 +334,11 @@ Object.assign(ACTIONS,{
   'clear-mapping':()=>{liveRestoreMapping=null;state.restoreFix={};state.miss=null;state.restored=false;render();},
   'accept-suggest':()=>{const r=restoreInfo(state);r.missing.forEach(t=>{if(r.suggest[t])state.restoreFix[t]=r.suggest[t];});state.miss=null;state.restored=false;render();},
   'save-restored':()=>task(async()=>{
-    await persist();const result=await api('restore',{text:state.restoreInput,fixes:state.restoreFix,save:true,mapping:liveRestoreMapping?.mapping??null});
+    await persist();const mapping=liveRestoreMapping?.mapping??null;let result;
+    if(liveResultWord?.text===state.restoreInput){
+      const form=new FormData();form.append('file',liveResultWord.file);form.append('choices',JSON.stringify({fixes:state.restoreFix,mapping}));
+      result=await api('restore-word',form);
+    }else result=await api('restore',{text:state.restoreInput,fixes:state.restoreFix,save:true,mapping});
     hydrate(await api('project',undefined,'GET'));
     liveFiles=[result.file];state.restored=true;state.page='done';
     liveDone={title:'还原结果已保存到本机',sub:'真名版仅供本地使用；文件名标明是否部分还原'};
@@ -382,11 +388,11 @@ Object.assign(ACTIONS,{
   'copy-brief':()=>task(async()=>{await navigator.clipboard.writeText(liveDone.brief);liveCopied=true;}),
   'scope-default':()=>task(async()=>{liveDefaultScope=(await api('default-scope',{categories:[...liveScope]},'PUT')).default_scope;})
 });
-const resultPicker=document.createElement('input');resultPicker.type='file';resultPicker.accept='.txt,.md';resultPicker.id='result-picker';resultPicker.hidden=true;document.body.append(resultPicker);
+const resultPicker=document.createElement('input');resultPicker.type='file';resultPicker.accept='.txt,.md,.docx';resultPicker.id='result-picker';resultPicker.hidden=true;document.body.append(resultPicker);
 resultPicker.onchange=()=>task(async()=>{
   if(!resultPicker.files.length)return;
-  const form=new FormData();form.append('file',resultPicker.files[0]);
-  const result=await api('read-result',form);state.restoreInput=result.text;state.restoreFix={};state.page='restore';state.restored=false;resultPicker.value='';
+  const file=resultPicker.files[0],form=new FormData();form.append('file',file);
+  const result=await api('read-result',form);liveResultWord=/\.docx$/i.test(file.name)?{file,text:result.text}:null;state.restoreInput=result.text;state.restoreFix={};state.page='restore';state.restored=false;resultPicker.value='';
 });
 const mappingPicker=document.createElement('input');mappingPicker.type='file';mappingPicker.accept='.json';mappingPicker.hidden=true;document.body.append(mappingPicker);
 mappingPicker.onchange=()=>task(async()=>{

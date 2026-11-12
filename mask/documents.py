@@ -208,6 +208,63 @@ def masked_sections(document, edits):
             for pi, text in enumerate(section['paragraphs'])]} for si, section in enumerate(document['sections'])]
 
 
+def replace_span(p, start, end, text):
+    """Put text in place of the paragraph's characters [start, end), in the first run the span touches."""
+    pos, inserted = 0, False
+    for node, value in list(text_nodes(p)):
+        stop = pos + len(value)
+        a, b = max(pos, start), min(stop, end)
+        if a < b:
+            new = value[:a-pos] + (text if not inserted else '') + value[b-pos:]
+            inserted = True
+            if node.tag != f'{{{W}}}t':
+                if new:
+                    raise ValueError('候选从制表符或换行符开始，请修正范围')
+                node.getparent().remove(node)
+            else:
+                node.text = new
+                node.set(XML_SPACE, 'preserve')
+        pos = stop
+
+
+# An AI result is restored wherever Word keeps paragraphs, notes and comments included.
+RESULT_PARTS = r'word/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml'
+
+
+def result_roots(archive):
+    names = [n for n in archive.namelist() if re.fullmatch(RESULT_PARTS, n)]
+    return {n: xml(archive.read(n)) for n in sorted(names, key=lambda n: (n != 'word/document.xml', n))}
+
+
+def open_result(data):
+    try:
+        return zipfile.ZipFile(BytesIO(data))
+    except zipfile.BadZipFile as exc:
+        raise ValueError('不是有效的 Word .docx 文件，可能已损坏或是 Word 打开时生成的临时文件') from exc
+
+
+def result_text(data):
+    """Every paragraph of a Word AI result, one per line."""
+    with open_result(data) as z:
+        return '\n'.join(''.join(t for _, t in text_nodes(p)) for root in result_roots(z).values() for p in root.iter(f'{{{W}}}p'))
+
+
+def restore_docx(data, spans):
+    """The Word file with spans(paragraph text) -> [(start, end, original)] replaced in place; formatting stays."""
+    with open_result(data) as original:
+        roots = result_roots(original)
+        for root in roots.values():
+            for p in root.iter(f'{{{W}}}p'):
+                for start, end, text in reversed(spans(''.join(t for _, t in text_nodes(p)))):
+                    replace_span(p, start, end, text)
+        target = BytesIO()
+        with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
+            for item in original.infolist():
+                out.writestr(item, ET.tostring(roots[item.filename], xml_declaration=True, encoding='UTF-8', standalone=True)
+                             if item.filename in roots else original.read(item.filename))
+    return target.getvalue()
+
+
 def export_docx(source, document, edits, target):
     with zipfile.ZipFile(source) as original:
         roots = {p: xml(original.read(p)) for p in docx_parts(original)}
@@ -215,21 +272,7 @@ def export_docx(source, document, edits, target):
             for pi, location in enumerate(section['sources']):
                 p = list(roots[location['part']].iter(f'{{{W}}}p'))[location['paragraph']]
                 for edit in sorted(paragraph_edits(edits, si, pi), key=lambda e: e['start'], reverse=True):
-                    pos, inserted = 0, False
-                    for node, value in list(text_nodes(p)):
-                        end = pos + len(value)
-                        a, b = max(pos, edit['start']), min(end, edit['end'])
-                        if a < b:
-                            new = value[:a-pos] + (edit['tag'] if not inserted else '') + value[b-pos:]
-                            inserted = True
-                            if node.tag != f'{{{W}}}t':
-                                if new:
-                                    raise ValueError('候选从制表符或换行符开始，请修正范围')
-                                node.getparent().remove(node)
-                            else:
-                                node.text = new
-                                node.set(XML_SPACE, 'preserve')
-                        pos = end
+                    replace_span(p, edit['start'], edit['end'], edit['tag'])
         with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
             for item in original.infolist():
                 data = original.read(item.filename)

@@ -17,38 +17,46 @@ import uuid
 from .official import TAG, _tool_seek, normalize_mapping_dict
 
 # Tag-like text an AI may have rewritten: full-width or escaped brackets, other dots, inserted spaces.
-LOOSE = re.compile(r'(?:&lt;|\\?[<＜〈])[^<>＜＞〈〉]{1,80}?(?:&gt;|\\?[>＞〉])')
+# The second form is a tag whose angle brackets were dropped: 类型[编号].类型.名称, the type written twice.
+LOOSE = re.compile(r'(?:&lt;|\\?[<＜〈])[^<>＜＞〈〉]{1,80}?(?:&gt;|\\?[>＞〉])'
+                   r'|([^\s<>＜＞〈〉\[\]［］【】.．。,，、:：;；()（）]{1,20}?)[\[［【]\d+[\]］】][.．。]\1[.．。]名称\d*')
 FOLD = str.maketrans('【】〈〉。', '[]<>.')
 
 
 def tag_shape(text):
-    return re.sub(r'[\s\\]', '', unicodedata.normalize('NFKC', text.replace('&lt;', '<').replace('&gt;', '>'))).translate(FOLD)
+    shape = re.sub(r'[\s\\]', '', unicodedata.normalize('NFKC', text.replace('&lt;', '<').replace('&gt;', '>'))).translate(FOLD)
+    return shape if shape.startswith('<') else f'<{shape}>'
+
+
+def scan(text, mapping, fixes=None):
+    """Where tags in text are replaced: ([(start, end, original)], missing, kept, suggest)."""
+    fixes = fixes or {}
+    spans, missing, kept, suggest = [], set(), set(), {}
+    for match in LOOSE.finditer(text):
+        tag = target = match.group()
+        if tag not in mapping:
+            shape = tag_shape(tag)
+            if not TAG.fullmatch(shape):
+                continue
+            # A rewritten tag is never replaced silently; its official shape is only offered as a suggestion.
+            if shape in mapping:
+                suggest[tag] = shape
+            target = fixes.get(tag)
+            if target == 'keep':
+                kept.add(tag)
+            elif target not in mapping:
+                missing.add(tag)
+        if target in mapping:
+            spans.append((match.start(), match.end(), _tool_seek(tag, {tag: [mapping[target]]})))
+    return spans, missing, kept, suggest
 
 
 def restore(text, mapping, fixes=None):
     """Replace tags by their originals in one pass; restored text is never scanned again."""
-    fixes = fixes or {}
-    missing, kept, suggest = set(), set(), {}
-    def one(match):
-        tag = match.group()
-        if tag in mapping:
-            return _tool_seek(tag, {tag: [mapping[tag]]})
-        shape = tag_shape(tag)
-        if not TAG.fullmatch(shape):
-            return tag
-        # A rewritten tag is never replaced silently; its official shape is only offered as a suggestion.
-        if shape in mapping:
-            suggest[tag] = shape
-        target = fixes.get(tag)
-        if target == 'keep':
-            kept.add(tag)
-        elif target in mapping:
-            return _tool_seek(tag, {tag: [mapping[target]]})
-        else:
-            missing.add(tag)
-        return tag
-    result = LOOSE.sub(one, text)
-    return {'text': result, 'missing': sorted(missing), 'kept': sorted(kept), 'suggest': suggest,
+    spans, missing, kept, suggest = scan(text, mapping, fixes)
+    for start, end, original in reversed(spans):
+        text = text[:start] + original + text[end:]
+    return {'text': text, 'missing': sorted(missing), 'kept': sorted(kept), 'suggest': suggest,
             'partial': bool(missing or kept)}
 
 

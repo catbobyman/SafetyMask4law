@@ -16,9 +16,9 @@ import zipfile
 from . import store
 from .categories import all_categories, catalog, default_categories, scope_hash
 from .detect import locate
-from .documents import read_document, read_docx, export_original, masked_sections
+from .documents import read_document, read_docx, export_original, masked_sections, restore_docx
 from .official import TAG, save_mapping
-from .vault import Vault, imported, restore
+from .vault import Vault, imported, restore, scan
 
 
 # Official SKILL.md requires explaining the tag format to the cloud model, or it may rewrite tags and break restore.
@@ -351,19 +351,34 @@ class Project:
         self.save()
         return {'file': item, 'revision': self.state['revision']}
 
+    def save_restored(self, data, ext, missing, partial):
+        if missing:
+            raise ValueError('存在未处理的缺失代号，请先选择对应映射或保留代号')
+        identity = uuid.uuid4().hex
+        folder = self.directory / 'restored'
+        folder.mkdir(exist_ok=True)
+        stamp = time.strftime('%Y%m%d-%H%M%S')
+        target = folder / f'还原结果-{stamp}-{identity[:4]}{".部分还原" if partial else ".已还原"}{ext}'
+        target.write_bytes(data)
+        item = {'id': identity, 'name': target.name, 'path': str(target)}
+        self.state['outputs'].append(item)
+        self.save()
+        return item
+
     def restore_result(self, text, fixes, save=False, mapping=None):
         result = restore(text, self.vault.mapping if mapping is None else imported(mapping), fixes)
         if save:
-            if result['missing']:
-                raise ValueError('存在未处理的缺失代号，请先选择对应映射或保留代号')
-            identity = uuid.uuid4().hex
-            folder = self.directory / 'restored'
-            folder.mkdir(exist_ok=True)
-            stamp = time.strftime('%Y%m%d-%H%M%S')
-            target = folder / f'还原结果-{stamp}-{identity[:4]}{".部分还原" if result["partial"] else ".已还原"}.md'
-            target.write_bytes(result['text'].encode('utf-8'))
-            item = {'id': identity, 'name': target.name, 'path': str(target)}
-            self.state['outputs'].append(item)
-            self.save()
-            result['file'] = item
+            result['file'] = self.save_restored(result['text'].encode('utf-8'), '.md', result['missing'], result['partial'])
         return result
+
+    def restore_word(self, data, fixes, mapping=None):
+        """A Word AI result restored in place, saved as Word with its formatting."""
+        mapping = self.vault.mapping if mapping is None else imported(mapping)
+        missing, kept = set(), set()
+        def spans(text):
+            found, absent, left, _ = scan(text, mapping, fixes)
+            missing.update(absent)
+            kept.update(left)
+            return found
+        data = restore_docx(data, spans)
+        return {'file': self.save_restored(data, '.docx', missing, bool(kept))}

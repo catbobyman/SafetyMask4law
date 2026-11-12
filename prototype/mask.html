@@ -527,9 +527,9 @@ const canExport=s=>s.documents.length>0&&counts(s).scanning===0&&counts(s).pendi
 const canRelease=s=>canExport(s)&&s.documents.some(d=>!d.handed);
 // HaS 官方代号形状 <类型[编号].分类.属性>；同一主体的其他写法用 名称2、名称3。
 const TAG_RE=/<[^<>\[\]]+\[\d+\]\.[^<>\[\].]+\.[^<>\[\].]+>/g,TAG_FULL=new RegExp('^'+TAG_RE.source+'$');
-// Tag-like text an AI may have rewritten: full-width or escaped brackets, other dots, inserted spaces. Same rule as mask/official.py.
-const LOOSE_TAG_RE=/(?:&lt;|\\?[<＜〈])[^<>＜＞〈〉]{1,80}?(?:&gt;|\\?[>＞〉])/g,TAG_FOLD={'【':'[','】':']','〈':'<','〉':'>','。':'.'};
-const tagShape=t=>t.replace(/&lt;/g,'<').replace(/&gt;/g,'>').normalize('NFKC').replace(/[\s\\]/g,'').replace(/[【】〈〉。]/g,c=>TAG_FOLD[c]);
+// Tag-like text an AI may have rewritten: full-width or escaped brackets, other dots, inserted spaces; or the angle brackets dropped. Same rule as mask/vault.py.
+const LOOSE_TAG_RE=/(?:&lt;|\\?[<＜〈])[^<>＜＞〈〉]{1,80}?(?:&gt;|\\?[>＞〉])|([^\s<>＜＞〈〉\[\]［］【】.．。,，、:：;；()（）]{1,20}?)[\[［【]\d+[\]］】][.．。]\1[.．。]名称\d*/g,TAG_FOLD={'【':'[','】':']','〈':'<','〉':'>','。':'.'};
+const tagShape=t=>{const s=t.replace(/&lt;/g,'<').replace(/&gt;/g,'>').normalize('NFKC').replace(/[\s\\]/g,'').replace(/[【】〈〉。]/g,c=>TAG_FOLD[c]);return s.startsWith('<')?s:`<${s}>`;};
 const findTags=text=>[...text.matchAll(LOOSE_TAG_RE)].filter(m=>TAG_FULL.test(tagShape(m[0])));
 // A rewritten tag is never replaced silently; its official shape is only offered as a suggestion.
 const tagSuggestions=(tokens,map)=>Object.fromEntries(tokens.filter(t=>!(t in map)&&tagShape(t) in map).map(t=>[t,tagShape(t)]));

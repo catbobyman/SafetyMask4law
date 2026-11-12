@@ -97,6 +97,21 @@ def test_review_overlap_stale_source_and_unknown_tags(tmp_path):
     assert result['text'] == rewritten and result['missing'] == sorted(result['suggest'])
     assert result['suggest'] == {'＜人名［1］．人名．名称＞': '<人名[1].人名.名称>', '\\<人名[1].人名.名称\\>': '<人名[1].人名.名称>'}
     assert project.restore_result('＜人名［1］．人名．名称＞', {'＜人名［1］．人名．名称＞': '<人名[1].人名.名称>'})['text'] == '张三'
+    # A tag that lost its angle brackets is reported the same way.
+    assert project.restore_result('另见人名[1].人名.名称。', {})['suggest'] == {'人名[1].人名.名称': '<人名[1].人名.名称>'}
+    # A Word result is restored inside its runs, so the formatting stays; a missing tag still blocks saving.
+    word = Document()
+    paragraph = word.add_paragraph('甲方 ')
+    paragraph.add_run('<人名[1].人').bold = True
+    paragraph.add_run('名.名称> 签字，见<公司[999].公司.名称>')
+    word.save(tmp_path / 'result.docx')
+    data = (tmp_path / 'result.docx').read_bytes()
+    with pytest.raises(ValueError, match='缺失代号'):
+        project.restore_word(data, {})
+    saved = project.restore_word(data, {'<公司[999].公司.名称>': 'keep'})['file']
+    restored = Document(saved['path']).paragraphs[0]
+    assert saved['name'].endswith('.部分还原.docx')
+    assert restored.text == '甲方 张三 签字，见<公司[999].公司.名称>' and restored.runs[1].bold and not restored.runs[2].bold
     # Original text can itself contain a tag: never cascade replacements.
     assert restore('<人名[1].人名.名称>', {'<人名[1].人名.名称>':'<公司[2].公司.名称>', '<公司[2].公司.名称>':'错误'})['text'] == '<公司[2].公司.名称>'
 
