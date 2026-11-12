@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Mask · 接入 Agent（原型）</title>
+<style>
+/* 颜色、字体、抽屉、开关都取自 mask.html 和 live.js，这里只加 Agent 面板自己的样式 */
+:root{
+  --bg:#F5F4F1;--desk:#D8D6D1;--sheet:#FFF;--elev:#FFF;--ink:#1D1D1F;--ink2:#6E6E73;--ink3:#A1A1A6;
+  --line:rgba(29,29,31,.1);--fill:rgba(29,29,31,.055);--fill2:rgba(29,29,31,.1);
+  --glass:rgba(255,255,255,.76);
+  --zhu:#C43D27;--wash:#FBEAE5;--on-zhu:#FFF;--pill:#1D1D1F;--pill-fg:#FFF;
+  --mask:#1D1D1F;--mask-fg:#FFF;--keep:#1E8A4C;--keep-wash:rgba(30,138,76,.1);--blue:#4a7de0;
+  --shadow-1:0 1px 2px rgba(29,29,31,.04),0 10px 30px -12px rgba(29,29,31,.12);
+  --shadow-2:0 1px 3px rgba(29,29,31,.08),0 18px 50px -12px rgba(29,29,31,.24);
+  --spring:cubic-bezier(.32,.72,0,1);
+  --ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  --doc:"Noto Serif SC","Source Han Serif SC","Songti SC",STSong,SimSun,serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#1C1C1E;--desk:#000;--sheet:#29292B;--elev:#323234;--ink:#F5F5F7;--ink2:#A1A1A6;--ink3:#6E6E73;
+  --line:rgba(245,245,247,.13);--fill:rgba(245,245,247,.08);--fill2:rgba(245,245,247,.15);
+  --glass:rgba(50,50,52,.72);
+  --zhu:#FF7A5C;--wash:rgba(255,122,92,.16);--on-zhu:#1D1D1F;--pill:#F5F5F7;--pill-fg:#1D1D1F;
+  --mask:#050506;--mask-fg:#F5F5F7;--keep:#5BCB88;--keep-wash:rgba(91,203,136,.14);
+  --shadow-1:0 1px 2px rgba(0,0,0,.3),0 12px 34px -12px rgba(0,0,0,.5);
+  --shadow-2:0 1px 3px rgba(0,0,0,.3),0 16px 40px -16px rgba(0,0,0,.5);
+}}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{overflow:hidden;background:var(--desk);color:var(--ink);font:14px/1.5 var(--ui);-webkit-font-smoothing:antialiased}
+button{padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer}
+button:disabled{cursor:default}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.glass{background:var(--glass);-webkit-backdrop-filter:blur(24px) saturate(1.8);backdrop-filter:blur(24px) saturate(1.8);box-shadow:0 0 0 .5px var(--line),0 4px 14px -6px rgba(0,0,0,.14)}
+
+/* 工作台外壳：选材料页，抽屉从底部升起 */
+.win{position:fixed;inset:0;overflow:hidden;background:var(--bg);transition:transform .55s var(--spring),border-radius .55s var(--spring)}
+body[data-sheet="1"] .win.web{transform:scale(.965);border-radius:18px}
+.bar{position:absolute;z-index:5;top:12px;left:16px;right:16px;display:flex;align-items:center;gap:10px;height:44px}
+.crumb{display:flex;align-items:center;gap:3px;height:34px;padding:0 13px 0 8px;border-radius:17px;font-size:13px;color:var(--ink2)}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px;padding:72px 24px}
+.ask{max-width:640px;font:500 25px/1.6 var(--doc);text-align:center}
+.quiet{display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:13px}
+.center .quiet{margin-top:-20px}
+.tiles{display:flex;gap:18px}
+.mini{display:grid;place-items:end center;width:110px;height:148px;padding-bottom:12px;border-radius:6px;background:var(--sheet);box-shadow:var(--shadow-1);color:var(--ink3);font-size:12px}
+.cta{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 24px;border-radius:24px;background:var(--pill);color:var(--pill-fg);font-size:15px;font-weight:500;transition:transform .2s var(--spring)}
+.cta:active{transform:scale(.97)}
+.cta.hot{background:var(--zhu);color:var(--on-zhu)}
+.cta.soft{background:var(--fill2);color:var(--ink)}
+.opts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.opt{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px 0 14px;border-radius:17px;background:var(--fill);color:var(--ink2);font-size:13px}
+.opt:hover{background:var(--fill2)}
+.opt b{font-weight:500;color:var(--ink)}
+.dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--ink3)}
+.dot.on{background:var(--keep)}
+.dot.todo{background:var(--zhu)}
+.dot.wait{background:var(--blue);animation:pulse 1.2s ease-in-out infinite}
+
+/* 底部抽屉 */
+.scrim{position:fixed;z-index:30;inset:0;background:rgba(0,0,0,.26)}
+.scrim.enter{animation:fade .25s}
+.modal{position:fixed;z-index:31;left:50%;bottom:20px;display:flex;flex-direction:column;gap:18px;width:min(560px,calc(100% - 24px));max-height:calc(100% - 40px);overflow-y:auto;padding:26px;border-radius:30px;transform:translateX(-50%);background:var(--elev);box-shadow:var(--shadow-2);scrollbar-width:thin}
+.modal.enter{animation:rise .46s var(--spring)}
+.modal .x,.modal .bk{position:absolute;top:14px;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--fill);color:var(--ink2)}
+.modal .x{right:14px}
+.modal .bk{left:14px}
+.modal h2{font-size:17px;font-weight:600;text-align:center;padding:0 30px}
+.modal .cta{flex:1}
+.btns{display:flex;gap:10px}
+
+/* 分段切换：浅色玻璃。黑色灵动岛只给核对工具用 */
+.seg{display:flex;align-self:center;padding:2px;border-radius:18px;background:var(--fill)}
+.seg button{height:30px;padding:0 15px;border-radius:15px;color:var(--ink2);font-size:13px;transition:background-color .2s,color .2s}
+.seg button.on{background:var(--elev);box-shadow:0 0 0 .5px var(--line),0 1px 3px rgba(0,0,0,.08);color:var(--ink);font-weight:500}
+.seg.sm button{height:26px;padding:0 12px;font-size:12px}
+
+/* 网关状态：一行 */
+.gw{display:flex;align-items:center;gap:8px;padding:11px 14px;border-radius:16px;background:var(--fill);font-size:13px;color:var(--ink2)}
+.gw b{font-weight:600;color:var(--ink)}
+.gw.down{background:var(--wash);color:var(--zhu)}
+.gw.down b{color:var(--zhu)}
+.gw button{margin-left:auto;height:28px;padding:0 13px;border-radius:14px;background:var(--zhu);color:var(--on-zhu);font-size:12.5px;font-weight:600}
+.gw .nums{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Agent 行 */
+.ags{display:flex;flex-direction:column}
+.ag{display:flex;align-items:center;gap:13px;padding:13px 2px}
+.ag+.ag,.ag-detail+.ag{border-top:.5px solid var(--line)}
+.ag-ic{display:grid;flex:none;place-items:center;width:38px;height:38px;border-radius:11px;background:var(--fill2);font-weight:600;font-size:15px}
+.ag.na .ag-ic,.ag.na .ag-name b{opacity:.5}
+.ag-main{display:grid;flex:1;gap:2px;min-width:0}
+.ag-name{display:flex;align-items:baseline;gap:8px}
+.ag-name b{font-size:14.5px;font-weight:600}
+.ag-name small{color:var(--ink3);font-size:12px;font-variant-numeric:tabular-nums}
+.ag-st{display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:12.5px;line-height:1.45}
+.ag-st.todo{color:var(--zhu)}
+.ag-more{display:flex;flex:none;align-items:center;gap:1px;height:30px;padding:0 4px 0 9px;border-radius:15px;color:var(--ink2);font-size:12.5px}
+.ag-more:hover{background:var(--fill)}
+.ag-more svg{transition:transform .25s var(--spring)}
+.ag-more.open svg{transform:rotate(90deg)}
+.ag-no{flex:none;color:var(--ink3);font-size:12.5px}
+.switch{flex:none;width:46px;height:26px;border-radius:13px;background:var(--fill2);padding:3px;transition:background-color .2s}
+.switch i{display:block;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .25s var(--spring)}
+.switch.on{background:var(--blue)}
+.switch.on i{transform:translateX(20px)}
+.switch.busy{opacity:.6}
+.ag-detail{display:grid;gap:9px;margin:0 2px 13px 53px;padding:13px 15px;border-radius:16px;background:var(--fill);font-size:12.5px}
+.ag-detail.enter,.lg-x.enter{animation:fade .3s}
+.kv{display:grid;grid-template-columns:64px 1fr;gap:10px}
+.kv span{color:var(--ink3)}
+.kv code{font:12px/1.6 var(--mono);overflow-wrap:anywhere}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.lk{height:28px;padding:0 12px;border-radius:14px;background:var(--fill2);font-size:12.5px}
+.lk:hover{background:var(--elev);box-shadow:0 0 0 .5px var(--line)}
+.lk.hot{background:var(--zhu);color:var(--on-zhu)}
+.lk.hot:hover{background:var(--zhu);box-shadow:none}
+.lk.red{color:var(--zhu)}
+
+/* 改动预览 */
+.diff{overflow:hidden;border-radius:16px;background:var(--fill);font:12.5px/1.9 var(--mono)}
+.diff-h{padding:8px 15px;border-bottom:.5px solid var(--line);font-weight:600}
+.dl{padding:0 15px;white-space:pre;overflow:hidden;text-overflow:ellipsis}
+.dl.ctx{color:var(--ink3)}
+.dl.del{background:var(--wash);color:var(--zhu);text-decoration:line-through}
+.dl.add{background:var(--keep-wash);color:var(--keep)}
+.say{color:var(--ink2);font-size:13.5px;line-height:1.7}
+.say b{color:var(--ink);font-weight:600}
+.warn{display:flex;gap:8px;padding:10px 13px;border-radius:14px;background:var(--wash);color:var(--zhu);font-size:13px;line-height:1.6}
+
+/* 记录 */
+.logs{display:flex;flex-direction:column}
+.lg{display:grid;grid-template-columns:44px 1fr auto;align-items:baseline;gap:10px;width:100%;padding:10px 2px;border-top:.5px solid var(--line);text-align:left;font-size:13px}
+.lg:first-child{border:0}
+.lg time{color:var(--ink3);font-size:12px;font-variant-numeric:tabular-nums}
+.lg small{color:var(--ink3);font-size:12px}
+.lg em{font-style:normal;color:var(--ink2);font-size:12.5px;white-space:nowrap}
+.lg.blk em{color:var(--zhu);font-weight:600}
+.lg-x{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-2px 2px 12px 56px}
+.tag{display:inline-flex;align-items:baseline;gap:6px;padding:2px 9px;border-radius:7px;background:var(--mask);color:var(--mask-fg);font:500 12px/1.7 var(--mono)}
+.tag b{font-weight:600;opacity:.7}
+.lg-x p{flex-basis:100%;color:var(--zhu);font-size:12.5px}
+.empty{padding:26px 10px;color:var(--ink3);font-size:13px;text-align:center;line-height:1.8}
+
+.hud{position:fixed;z-index:60;left:50%;top:22px;display:flex;align-items:center;gap:12px;padding:8px 8px 8px 16px;border-radius:20px;background:var(--pill);color:var(--pill-fg);font-size:13px;white-space:nowrap;opacity:0;transform:translate(-50%,-14px);transition:opacity .25s,transform .4s var(--spring);pointer-events:none}
+.hud.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.hud span{padding-right:8px}
+.hud button{height:26px;padding:0 12px;border-radius:13px;background:rgba(128,128,128,.35);font-size:12.5px}
+
+/* 桌面端外壳：同一个面板放进窗口里；托盘不依赖窗口 */
+.desk{position:fixed;inset:0;display:grid;place-items:center;padding:20px 20px 64px;background:linear-gradient(160deg,#6F7F92,#3F4A5A)}
+.appwin{position:relative;display:flex;flex-direction:column;width:min(940px,100%);height:min(680px,100%);overflow:hidden;border-radius:12px;background:var(--bg);box-shadow:0 30px 80px -20px rgba(0,0,0,.6),0 0 0 .5px rgba(0,0,0,.3)}
+.titlebar{display:flex;flex:none;align-items:center;height:40px;padding-left:14px;color:var(--ink2);font-size:12.5px}
+.titlebar b{display:grid;place-items:center;width:20px;height:20px;margin-right:8px;border-radius:6px;background:var(--pill);color:var(--pill-fg);font-size:12px}
+.titlebar i{flex:1}
+.titlebar button{display:grid;place-items:center;width:46px;height:40px;color:var(--ink2)}
+.titlebar button:hover{background:var(--fill)}
+.apptabs{display:flex;flex:none;justify-content:center;padding:4px 0 10px}
+.appbody{flex:1;overflow-y:auto;padding:14px 24px 40px;scrollbar-width:thin}
+.col{display:flex;flex-direction:column;gap:18px;width:min(580px,100%);margin:0 auto}
+.col h1{font:500 22px/1.5 var(--doc);text-align:center}
+.appwin .scrim{position:absolute}
+.appwin .modal{position:absolute}
+.taskbar{position:fixed;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:flex-end;gap:14px;height:44px;padding:0 18px;background:rgba(20,22,28,.72);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);color:#E8E8EA;font-size:12px}
+.trayic{position:relative;display:grid;place-items:center;width:30px;height:30px;border-radius:7px}
+.trayic:hover,.trayic.open{background:rgba(255,255,255,.14)}
+.trayic .dot{position:absolute;right:3px;bottom:3px;box-shadow:0 0 0 1.5px #23262d}
+.tray{position:fixed;z-index:50;right:14px;bottom:54px;display:flex;flex-direction:column;gap:12px;width:300px;padding:16px;border-radius:18px;background:var(--elev);box-shadow:var(--shadow-2);transform-origin:90% 100%}
+.tray.enter{animation:pop .22s var(--spring)}
+.tray-h{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2)}
+.tray-h b{color:var(--ink);font-weight:600}
+.tray-r{display:flex;align-items:center;gap:10px;font-size:13.5px}
+.tray-r span{flex:1}
+.tray-r small{display:block;color:var(--ink3);font-size:12px}
+.tray-f{display:flex;gap:8px;padding-top:12px;border-top:.5px solid var(--line)}
+.tray-f .lk{flex:1}
+
+/* 原型控件，不属于产品 */
+.proto-btn{position:fixed;z-index:70;left:14px;bottom:14px;height:30px;padding:0 13px;border:1.5px dashed var(--ink3);border-radius:15px;background:var(--elev);color:var(--ink2);font-size:12px}
+.desk~.proto-btn{bottom:54px}
+.proto-panel{position:fixed;z-index:70;left:14px;bottom:52px;display:grid;gap:10px;width:250px;padding:14px;border:1.5px dashed var(--ink3);border-radius:16px;background:var(--elev);font-size:12px;color:var(--ink2)}
+.desk~.proto-panel{bottom:92px}
+.proto-panel div{display:flex;flex-wrap:wrap;gap:5px}
+.proto-panel button{height:26px;padding:0 10px;border-radius:13px;background:var(--fill);font-size:12px}
+.proto-panel button.on{background:var(--pill);color:var(--pill-fg)}
+
+@keyframes fade{from{opacity:0}}
+@keyframes pop{from{opacity:0;transform:scale(.92)}}
+@keyframes rise{from{opacity:0;transform:translate(-50%,40px) scale(.96)}}
+@keyframes pulse{50%{opacity:.35}}
+.gw button,.ag-name b{flex:none;white-space:nowrap}
+@media (max-width:560px){.ag-detail,.lg-x{margin-left:2px}.gw .nums,.ag-name small{display:none}.kv{grid-template-columns:1fr;gap:0}.ag-more{padding:0 6px;font-size:0}.modal{padding:22px 18px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// 原型：数据都是示例，不改任何文件，刷新即重置。
+const PORT=8788;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const I={
+  x:'<path d="M6 6l12 12M18 6L6 18"/>',next:'<path d="M9 5l7 7-7 7"/>',back:'<path d="M15 5l-7 7 7 7"/>',
+  warn:'<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/>',lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/>',
+  min:'<path d="M6 12h12"/>',max:'<rect x="6" y="6" width="12" height="12" rx="1.5"/>',
+};
+const icon=(n,s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+
+// 每个 Agent：gate 是网关接入的状态；plugin 是现有的技能加拦截插件。
+// gate: off 未接入 · starting 启动网关 · writing 写配置 · pending 已写入，等 Agent 重启 · live 生效中 · drift 接入被改掉 · blocked 不能接入
+const AGENTS={
+  claude:{name:'Claude Code',glyph:'C',ver:'2.1.322',file:'~/.claude/settings.json',key:'env.ANTHROPIC_BASE_URL',
+    upstream:'api.anthropic.com',was:'没有设置（直连，订阅登录）'},
+  dsh:{name:'DeepSeek Harness',glyph:'D',ver:'0.2.2-rc.1',why:'它的模型地址现在由 magpie 维护，每 30 秒重写一次。Mask 改了会被改回，所以这里只装技能和拦截插件，不走网关。'},
+  codex:{name:'Codex',glyph:'X',ver:'0.167.1',why:'它的模型地址现在由 magpie 维护，Mask 改了会被判为“被替换”并改回。技能和拦截暂未支持。'},
+  workbuddy:{name:'WorkBuddy',glyph:'W',ver:'',why:''},
+};
+const LOG_LIVE=[
+  {t:'10:42',a:'claude',p:'技术服务合同纠纷',n:7,tags:[['<人名[1].人名.名称>',3],['<组织[2].组织.名称>',3],['<电话[1].电话.名称>',1]]},
+  {t:'10:41',a:'claude',p:'技术服务合同纠纷',n:0,tags:[]},
+  {t:'10:37',a:'claude',p:'技术服务合同纠纷',block:'strict',why:'含未脱敏的身份证号，没有发出。',fix:'去工作台处理这份材料'},
+  {t:'10:31',a:'claude',p:'技术服务合同纠纷',n:12,tags:[['<人名[1].人名.名称>',5],['<人名[2].人名.名称>',2],['<组织[1].组织.名称>',4],['<案号[1].案号.名称>',1]]},
+  {t:'09:58',a:'claude',p:'',n:0,tags:[],note:'这个文件夹没有 Mask 项目，只查了号码'},
+];
+let state,protoOpen=false,hudTimer,seen=new Set(),now=new Set();
+// 只在元素第一次出现时播放进入动画；重绘时不重播。
+const enter=k=>{now.add(k);return seen.has(k)?'':' enter';};
+
+function scene(name,shell){
+  const s={scene:name,shell:shell||state?.shell||'web',sheet:true,tab:'agents',logBy:'req',view:'list',target:'',open:'',openLog:-1,
+    tray:false,gateway:'idle',gate:{claude:'off',dsh:'blocked',codex:'blocked',workbuddy:'none'},plugin:{dsh:true},
+    log:[],reqs:0,swaps:0,blocks:0,hud:null};
+  if(name==='live'){s.gateway='on';s.gate.claude='live';s.log=LOG_LIVE.map(r=>({...r}));s.reqs=132;s.swaps=418;s.blocks=1;}
+  if(name==='drift'){s.gateway='on';s.gate.claude='drift';s.open='claude';s.log=LOG_LIVE.slice(1).map(r=>({...r}));s.reqs=131;s.swaps=411;s.blocks=1;}
+  if(name==='down'){s.gateway='down';s.gate.claude='live';s.log=LOG_LIVE.map(r=>({...r}));s.reqs=132;s.swaps=418;s.blocks=1;}
+  state=s;
+}
+const wired=id=>['pending','live','drift','starting','writing'].includes(state.gate[id]);
+const anyWired=()=>Object.keys(AGENTS).some(id=>['pending','live'].includes(state.gate[id]));
+
+// ---------- 面板：工作台抽屉、桌面端页面、以后别的外壳都用这一份 ----------
+function gatewayLine(){
+  if(state.gateway==='down')return `<div class="gw down">${icon('warn',15)}<span><b>网关没有运行</b> · 已接入的 Agent 现在发不出请求</span><button data-a="gw-start">启动</button></div>`;
+  if(state.gateway==='idle')return `<div class="gw"><i class="dot"></i><span>还没有 Agent 经过 Mask。打开开关后，它发给模型的内容里已确认的真名会换成代号。</span></div>`;
+  return `<div class="gw"><i class="dot on"></i><span><b>网关运行中</b></span><span class="nums">今天 ${state.reqs} 条请求 · 换了 ${state.swaps} 处${state.blocks?` · 拦下 ${state.blocks} 条`:''}</span></div>`;
+}
+function statusOf(id){
+  const g=state.gate[id],a=AGENTS[id];
+  if(id==='dsh')return state.plugin.dsh?['on','已开启 · 技能与拦截插件（不经网关）']:['','已关闭 · 这个 Agent 不受 Mask 约束'];
+  return {
+    off:['','未接入 · 直连 '+a.upstream],
+    starting:['wait','正在启动网关…'],writing:['wait','正在写入配置…'],
+    pending:['wait','已接入 · 重启 '+a.name+' 后生效'],
+    live:[state.gateway==='down'?'todo':'on',state.gateway==='down'?'已接入 · 网关没有运行，请求发不出去':'已接入 · 生效中'],
+    drift:['todo','接入已被改掉 · 请求现在不经过 Mask'],
+    blocked:['','模型地址由 magpie 管理'],none:['','暂未支持'],
+  }[g];
+}
+function agentRow(id){
+  const a=AGENTS[id],g=state.gate[id],[dot,text]=statusOf(id),open=state.open===id;
+  const busy=g==='starting'||g==='writing';
+  let right;
+  if(id==='dsh')right=`<button class="switch ${state.plugin.dsh?'on':''}" role="switch" aria-checked="${state.plugin.dsh}" aria-label="${a.name}" data-a="plugin" data-v="dsh"><i></i></button>`;
+  else if(g==='blocked')right='<span class="ag-no">不能接入</span>';
+  else if(g==='none')right='';
+  else right=`<button class="switch ${wired(id)?'on':''} ${busy?'busy':''}" role="switch" aria-checked="${wired(id)}" aria-label="${a.name}" data-a="toggle" data-v="${id}" ${busy?'disabled':''}><i></i></button>`;
+  const more=g==='none'?'':`<button class="ag-more ${open?'open':''}" data-a="open" data-v="${id}" aria-expanded="${open}">${g==='blocked'||id==='dsh'?'原因':'详情'}${icon('next',13)}</button>`;
+  return `<div class="ag ${g==='none'?'na':''}"><div class="ag-ic">${a.glyph}</div><div class="ag-main"><div class="ag-name"><b>${a.name}</b><small>${a.ver}</small></div><div class="ag-st ${dot==='todo'?'todo':''}">${dot?`<i class="dot ${dot}"></i>`:''}${text}</div></div>${more}${right}</div>${open?agentDetail(id):''}`;
+}
+function agentDetail(id){
+  const a=AGENTS[id],g=state.gate[id];
+  if(id!=='claude')return `<div class="ag-detail${enter('d-'+id)}"><div>${a.why}</div></div>`;
+  const url=`http://127.0.0.1:${PORT}/claude`;
+  if(g==='drift')return `<div class="ag-detail${enter('d-'+id)}"><div class="kv"><span>改动位置</span><code>${a.file} · ${a.key}</code></div><div class="kv"><span>Mask 写的</span><code>${url}</code></div><div class="kv"><span>现在是</span><code>http://127.0.0.1:3425（magpie）</code></div><div>别的工具改了同一项。Claude Code 照常工作，但内容不再换成代号。</div><div class="links"><button class="lk hot" data-a="rewire">重新接入</button><button class="lk" data-a="forget">不接了，移除记录</button></div></div>`;
+  if(g==='off')return `<div class="ag-detail${enter('d-'+id)}"><div class="kv"><span>会改</span><code>${a.file} 加 1 行</code></div><div class="kv"><span>请求去向</span><code>Claude Code → Mask → ${a.upstream}</code></div><div>登录方式不变，其他设置不动。随时可以断开并还原。</div><div class="links"><button class="lk" data-a="view-diff">看将要改的内容</button></div></div>`;
+  return `<div class="ag-detail${enter('d-'+id)}"><div class="kv"><span>改动位置</span><code>${a.file} · ${a.key}</code></div><div class="kv"><span>请求去向</span><code>Claude Code → Mask → ${a.upstream}</code></div><div class="kv"><span>接入前</span><code>${a.was}</code></div>${g==='pending'?'<div>已打开的 Claude Code 窗口还在用旧设置。重启后第一条请求到达，这里会变成“生效中”。</div>':''}<div class="links"><button class="lk" data-a="view-diff">看改了什么</button><button class="lk" data-a="tab" data-v="log">看它的记录</button><button class="lk red" data-a="ask-off" data-v="claude">断开并还原</button></div></div>`;
+}
+function agentsTab(){
+  return gatewayLine()+`<div class="ags">${Object.keys(AGENTS).map(agentRow).join('')}</div><p class="quiet">开关对本机所有案件生效。原件和映射始终只在本机。</p>`;
+}
+function logTab(){
+  if(!state.log.length)return `<div class="empty">还没有记录。<br>接入一个 Agent 后，每条请求换了什么会列在这里，不记原文。</div>`;
+  const by=`<div class="seg sm"><button class="${state.logBy==='req'?'on':''}" data-a="logby" data-v="req">按请求</button><button class="${state.logBy==='tag'?'on':''}" data-a="logby" data-v="tag">按代号</button></div>`;
+  if(state.logBy==='tag'){
+    const sum={};state.log.forEach(r=>(r.tags||[]).forEach(([t,n])=>sum[t]=(sum[t]||0)+n));
+    return by+`<div class="logs">${Object.entries(sum).sort((x,y)=>y[1]-x[1]).map(([t,n])=>`<div class="lg"><time></time><span><span class="tag">${esc(t)}</span></span><em>今天换了 ${n} 处</em></div>`).join('')}</div><p class="quiet">代号对应的原文在工作台的“实体”面板里看。</p>`;
+  }
+  return by+`<div class="logs">${state.log.map((r,i)=>{
+    const open=state.openLog===i,right=r.block?'未发送':r.n?`换了 ${r.n} 处`:'没有要换的';
+    const x=!open?'':r.block?`<div class="lg-x${enter('l-'+i)}"><p>${r.why}</p><button class="lk hot" data-a="fix">${r.fix}</button></div>`
+      :`<div class="lg-x${enter('l-'+i)}">${r.tags.length?r.tags.map(([t,n])=>`<span class="tag">${esc(t)}<b>×${n}</b></span>`).join(''):`<small style="color:var(--ink3)">${r.note||'这条请求里没有已确认的真名。'}</small>`}</div>`;
+    return `<button class="lg ${r.block?'blk':''}" data-a="openlog" data-v="${i}" aria-expanded="${open}"><time>${r.t}</time><span>${AGENTS[r.a].name}<small> · ${r.p||'无项目'}</small></span><em>${right}</em></button>${x}`;
+  }).join('')}</div>`;
+}
+const tabs=()=>`<div class="seg"><button class="${state.tab==='agents'?'on':''}" data-a="tab" data-v="agents">Agent</button><button class="${state.tab==='log'?'on':''}" data-a="tab" data-v="log">记录</button></div>`;
+
+// ---------- 改动预览与断开确认 ----------
+function diff(kind){
+  const line=`    "ANTHROPIC_BASE_URL": "http://127.0.0.1:${PORT}/claude",`;
+  return `<div class="diff"><div class="diff-h">~/.claude/settings.json</div><div class="dl ctx">  "env": {</div><div class="dl ${kind}">${kind==='del'?'- ':'+ '}${esc(line.trim())}</div><div class="dl ctx">    "CLAUDE_CODE_WORKFLOWS": "1",</div><div class="dl ctx">  },</div></div>`;
+}
+function confirmOff(){
+  const a=AGENTS[state.target];
+  return `<button class="bk" data-a="back" aria-label="返回">${icon('back',15)}</button><h2>断开 ${a.name} 和 Mask？</h2><p class="say">${a.name} 将恢复接入前的设置。要改回的只有这一行，别的不动：</p>${diff('del')}<div class="warn">${icon('warn',16)}<span>断开后，它发给模型的内容不再经过 Mask，真名会原样发出。重启 ${a.name} 后生效。</span></div><div class="btns"><button class="cta soft" data-a="back">取消</button><button class="cta hot" data-a="do-off">断开并还原</button></div>`;
+}
+function viewDiff(){
+  const off=state.gate.claude==='off';
+  return `<button class="bk" data-a="back" aria-label="返回">${icon('back',15)}</button><h2>${off?'接入会改什么':'接入时改了什么'}</h2><p class="say">只${off?'加':'加了'}这一行。<b>登录方式、hooks 和其他设置不动。</b>接入前这一项没有值，断开时就是删掉它。</p>${diff('add')}<div class="btns"><button class="cta soft" data-a="back">知道了</button></div>`;
+}
+function quitAsk(){
+  return `<div class="scrim${enter('quit')}" data-a="quit-cancel" style="z-index:55"></div><section class="modal${enter('quit-m')}" style="z-index:56" role="dialog" aria-modal="true" aria-label="退出 Mask"><h2>还有 1 个 Agent 接在 Mask 上</h2><p class="say">退出后网关停止，<b>Claude Code 发不出请求</b>，直到 Mask 再次启动。只关窗口不会这样：网关留在托盘里继续运行。</p><div class="btns"><button class="cta soft" data-a="quit-cancel">取消</button><button class="cta soft" data-a="quit-only">只退出</button><button class="cta" data-a="quit-off">断开并退出</button></div></section>`;
+}
+function panel(){
+  if(state.view==='off')return confirmOff();
+  if(state.view==='diff')return viewDiff();
+  return tabs()+(state.tab==='agents'?agentsTab():logTab());
+}
+
+// ---------- 两种外壳 ----------
+function hostsOpt(){
+  const on=Object.keys(AGENTS).filter(id=>['pending','live'].includes(state.gate[id])||(id==='dsh'&&state.plugin.dsh)).map(id=>AGENTS[id].name);
+  const bad=state.gateway==='down'||state.gate.claude==='drift';
+  return `<button class="opt" data-a="sheet"><i class="dot ${bad?'todo':on.length?'on':''}"></i><span>Agent</span><b>${bad?'需要处理':on.length?on.join('、'):'未接入'}</b>${icon('next',12)}</button>`;
+}
+function webShell(){
+  const sheet=state.sheet?`<div class="scrim${enter('sheet')}" data-a="sheet"></div><section class="modal${enter('m-'+state.view)}" role="dialog" aria-modal="true" aria-label="接入 Agent">${state.view==='list'?`<button class="x" data-a="sheet" aria-label="关闭">${icon('x',15)}</button><h2>接入 Agent</h2>`:''}${panel()}</section>`:'';
+  return `<div class="win web"><header class="bar"><button class="crumb glass">${icon('back',15)}<span>Claude Code</span></button></header><main class="center"><h1 class="ask">确认需要脱敏的材料</h1><p class="quiet">已带入工作目录的 3 份 · 原文与映射只在本机处理</p><div class="tiles"><div class="mini">服务合同.docx</div><div class="mini">补充协议.docx</div><div class="mini">付款确认函.pdf</div></div><button class="cta">开始识别</button><div class="opts"><button class="opt"><span>脱敏范围</span><b>26 类</b>${icon('next',12)}</button>${hostsOpt()}</div></main></div>${sheet}`;
+}
+function trayPop(){
+  const down=state.gateway==='down',g=state.gate.claude;
+  return `<div class="tray${enter('tray')}"><div class="tray-h"><i class="dot ${down?'todo':state.gateway==='on'?'on':''}"></i><b>${down?'网关没有运行':state.gateway==='on'?'网关运行中':'网关空闲'}</b>${state.gateway==='on'?`<span style="margin-left:auto">今天换了 ${state.swaps} 处</span>`:''}</div><div class="tray-r"><span>Claude Code<small>${statusOf('claude')[1].replace('已接入 · ','')}</small></span><button class="switch ${wired('claude')?'on':''}" role="switch" aria-checked="${wired('claude')}" aria-label="Claude Code" data-a="toggle" data-v="claude" ${g==='starting'||g==='writing'?'disabled':''}><i></i></button></div><div class="tray-r"><span>DeepSeek Harness<small>技能与拦截插件</small></span><button class="switch ${state.plugin.dsh?'on':''}" role="switch" aria-checked="${state.plugin.dsh}" aria-label="DeepSeek Harness" data-a="plugin" data-v="dsh"><i></i></button></div><div class="tray-f"><button class="lk" data-a="tray">打开 Mask</button><button class="lk" data-a="quit">退出</button></div></div>`;
+}
+function deskShell(){
+  const inner=`<div class="col"><h1>${state.tab==='agents'?'哪些 Agent 的请求经过 Mask':'每条请求换了什么'}</h1>${panelBody()}</div>`;
+  const over=state.view==='list'?'':`<div class="scrim${enter('over')}" data-a="back"></div><section class="modal${enter('m-'+state.view)}" role="dialog" aria-modal="true">${panel()}</section>`;
+  const bad=state.gateway==='down'||state.gate.claude==='drift';
+  return `<div class="desk"><div class="appwin"><div class="titlebar"><b>m</b>Mask<i></i><button aria-label="最小化">${icon('min',14)}</button><button aria-label="最大化">${icon('max',13)}</button><button aria-label="关闭到托盘" data-a="hud" data-v="窗口已关到托盘，网关继续运行">${icon('x',14)}</button></div><div class="apptabs"><div class="seg"><button data-a="hud" data-v="案件页：原型里没有画">案件</button><button class="${state.tab==='agents'?'on':''}" data-a="tab" data-v="agents">Agent</button><button class="${state.tab==='log'?'on':''}" data-a="tab" data-v="log">记录</button></div></div><div class="appbody">${inner}</div>${over}</div></div><div class="taskbar"><span>托盘</span><button class="trayic ${state.tray?'open':''}" data-a="tray" aria-label="Mask 托盘图标" aria-expanded="${state.tray}">${icon('lock',17)}<i class="dot ${bad?'todo':state.gateway==='on'?'on':''}"></i></button><span>10:42</span></div>${state.tray?trayPop():''}${state.quit?quitAsk():''}`;
+}
+const panelBody=()=>state.tab==='agents'?agentsTab():logTab();
+
+function proto(){
+  const b=(a,v,l,on)=>`<button class="${on?'on':''}" data-a="${a}" data-v="${v}">${l}</button>`;
+  return `<button class="proto-btn" data-a="proto" aria-expanded="${protoOpen}">原型</button>${protoOpen?`<div class="proto-panel"><span>外壳</span><div>${b('shell','web','工作台（现在）',state.shell==='web')}${b('shell','desk','桌面端（以后）',state.shell==='desk')}</div><span>场景</span><div>${b('scene','fresh','第一次',state.scene==='fresh')}${b('scene','live','已接入',state.scene==='live')}${b('scene','drift','被别的工具改掉',state.scene==='drift')}${b('scene','down','网关停了',state.scene==='down')}</div><span>模拟 Agent 那边发生的事</span><div>${b('sim','first','重启后第一条请求')}${b('sim','block','一条被拦下的请求')}</div></div>`:''}`;
+}
+function render(){
+  now=new Set();
+  document.body.dataset.sheet=state.shell==='web'&&state.sheet?'1':'';
+  document.getElementById('app').innerHTML=(state.shell==='web'?webShell():deskShell())+`<div class="hud ${state.hud?'on':''}" role="status">${state.hud?`<span>${state.hud.text}</span>${state.hud.undo?'<button data-a="undo">撤销</button>':''}`:''}</div>`+proto();
+  seen=now;
+}
+function hud(text,undo){
+  clearTimeout(hudTimer);state.hud={text,undo};render();
+  hudTimer=setTimeout(()=>{state.hud=null;render();},undo?6000:2600);
+}
+
+// ---------- 动作 ----------
+// 接入的顺序：先让网关跑起来，再写 Agent 的配置。网关起不来就不写，Agent 不会指向一个没人听的端口。
+function connect(id){
+  state.gate[id]='starting';render();
+  setTimeout(()=>{state.gateway='on';state.gate[id]='writing';render();
+    setTimeout(()=>{state.gate[id]='pending';state.open=id;hud(`已接入 ${AGENTS[id].name}，重启它后生效`,true);},650);},750);
+}
+const actions={
+  proto(){protoOpen=!protoOpen;},
+  shell(v){state.shell=v;state.sheet=true;state.tray=false;state.quit=false;state.view='list';},
+  scene(v){scene(v,state.shell);},
+  sheet(){state.sheet=!state.sheet;state.view='list';},
+  tab(v){state.tab=v;state.view='list';if(state.shell==='web')state.sheet=true;},
+  logby(v){state.logBy=v;},
+  open(v){state.open=state.open===v?'':v;},
+  openlog(v){state.openLog=state.openLog===+v?-1:+v;},
+  toggle(v){if(state.gate[v]==='off')return connect(v);state.target=v;state.view='off';state.tray=false;if(state.shell==='web')state.sheet=true;},
+  'ask-off'(v){state.target=v;state.view='off';},
+  'view-diff'(){state.view='diff';},
+  back(){state.view='list';},
+  'do-off'(){const n=AGENTS[state.target].name;state.gate[state.target]='off';state.view='list';state.open='';
+    if(!anyWired()&&state.gateway==='on')state.gateway='idle';
+    return hud(`已断开并还原 ${n}，重启它后生效`);},
+  undo(){state.gate.claude='off';state.open='';state.hud=null;if(!anyWired())state.gateway='idle';},
+  plugin(v){state.plugin[v]=!state.plugin[v];return hud(state.plugin[v]?'已装入技能和拦截插件，重启 DeepSeek Harness 后生效':'已移除技能和拦截插件');},
+  rewire(){state.gate.claude='pending';return hud('已重新接入 Claude Code，重启它后生效');},
+  forget(){state.gate.claude='off';state.open='';return hud('已移除接入记录，Claude Code 的设置没有动');},
+  'gw-start'(){state.gateway='on';return hud('网关已启动');},
+  fix(){return hud('原型：这里回到工作台，定位到含这个号码的材料');},
+  hud(v){return hud(v);},
+  tray(){state.tray=!state.tray;},
+  quit(){state.tray=false;if(!anyWired())return hud('没有 Agent 接入，直接退出');state.quit=true;},
+  'quit-cancel'(){state.quit=false;},
+  'quit-only'(){state.quit=false;state.gateway='down';return hud('原型：Mask 已退出，网关停止');},
+  'quit-off'(){state.quit=false;state.gate.claude='off';state.gateway='idle';return hud('已断开并还原 Claude Code，然后退出');},
+  sim(v){
+    if(state.gate.claude!=='pending'&&state.gate.claude!=='live')return hud('先把 Claude Code 的开关打开');
+    if(state.gateway==='down')return hud('网关没有运行，这条请求发不出去');
+    state.gate.claude='live';state.reqs++;
+    if(v==='first'){state.swaps+=4;state.log.unshift({t:'10:43',a:'claude',p:'技术服务合同纠纷',n:4,tags:[['<人名[1].人名.名称>',2],['<组织[2].组织.名称>',2]]});return hud('第一条请求已到达，接入生效');}
+    state.blocks++;state.log.unshift({t:'10:44',a:'claude',p:'技术服务合同纠纷',block:'strict',why:'含未脱敏的身份证号，没有发出。',fix:'去工作台处理这份材料'});state.tab='log';state.openLog=0;if(state.shell==='web')state.sheet=true;
+    return hud('拦下 1 条请求：含未脱敏的身份证号');
+  },
+};
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-a]');
+  if(!t||t.disabled)return;
+  if(actions[t.dataset.a](t.dataset.v)===undefined)render();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(state.quit)state.quit=false;else if(state.view!=='list')state.view='list';else if(state.tray)state.tray=false;else if(state.shell==='web')state.sheet=false;render();}});
+scene('fresh','web');render();
+</script>
+</body>
+</html>
