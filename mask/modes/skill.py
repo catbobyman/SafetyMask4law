@@ -37,13 +37,26 @@ def start(workspace: Path):
     control = folder / 'control.mask'
     if not (control.exists() and _reopen(control)):
         control.unlink(missing_ok=True)
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        with (folder / 'workbench.log').open('ab') as log:
-            process = subprocess.Popen([sys.executable, '-m', 'mask', 'workbench', '--workspace', str(workspace), '--host'],
-                                       cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
+        command = [sys.executable, '-m', 'mask', 'workbench', '--workspace', str(workspace), '--host']
+        log = folder / 'workbench.log'
+        if os.name == 'nt':
+            # A host ends the processes its tools started when it exits (dsh headless does), and the
+            # workbench has to outlive the turn that opened it. Created through WMI it is not a child
+            # of this command, so it is not in the host's process tree.
+            line = f'cmd /c "{subprocess.list2cmdline(command)} >> "{log}" 2>&1"'
+            script = ('$s = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0};'
+                      'exit (Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments '
+                      '@{CommandLine=$env:MASK_LINE; CurrentDirectory=$env:MASK_ROOT; ProcessStartupInformation=$s}).ReturnValue')
+            created = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script], stdin=subprocess.DEVNULL,
+                                     capture_output=True, env={**os.environ, 'MASK_LINE': line, 'MASK_ROOT': str(ROOT)})
+            alive = lambda: created.returncode == 0
+        else:
+            with log.open('ab') as out:
+                process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT)
+            alive = lambda: process.poll() is None
         deadline = time.monotonic() + 30
         while not control.exists():
-            if process.poll() is not None or time.monotonic() > deadline:
+            if not alive() or time.monotonic() > deadline:
                 raise SystemExit(f'工作台未能启动，详见 {folder / "workbench.log"}')
             time.sleep(.2)
     report(workspace, '工作台已在用户的浏览器打开。等用户核对并点“交给 AI”后，再运行 status。')
