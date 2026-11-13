@@ -111,7 +111,7 @@ selectPage=function(){
   // Opened from an agent or in a material folder, the files are already here: materials first, then the one
   // action, then the two rarely changed settings as quiet chips.
   const local=state.dir.filter(f=>f.local&&!f.unsupported).length;
-  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${state.dir.length?'确认需要脱敏的材料':'选择需要脱敏的材料'}</h1><p class="quiet">${local?`已带入工作目录的 ${local} 份`:'TXT · Word（.docx）· 原生 PDF'} · 原文与映射只在本机处理</p><div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${start||resume?`<div class="ctas">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}<div class="opts">${scopeLine()}${hostsLine()}</div></main>`;
+  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${state.dir.length?'确认需要脱敏的材料':'选择需要脱敏的材料'}</h1><p class="quiet">${local?`已带入工作目录的 ${local} 份`:'TXT · Markdown · Word（.docx）· 原生 PDF'} · 原文与映射只在本机处理</p><div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${start||resume?`<div class="ctas">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}<div class="opts">${scopeLine()}${hostsLine()}</div></main>`;
 };
 reviewGo=function(){
   const c=counts(state),bad=state.documents.filter(d=>d.status==='failed'),clash=conflicts().length;
@@ -273,7 +273,7 @@ SHEETS.scope=function(){
 exportSheet=function(){return exportDialog('original');};
 addFiles=function(files){
   for(const file of files){
-    if(!/\.(txt|docx|pdf)$/i.test(file.name)){fail(new Error(`${file.name}：支持 TXT、DOCX 和原生 PDF；.doc 请另存为 .docx`));continue;}
+    if(!/\.(txt|md|docx|pdf)$/i.test(file.name)){fail(new Error(`${file.name}：支持 TXT、Markdown、DOCX 和原生 PDF；.doc 请另存为 .docx`));continue;}
     const key=crypto.randomUUID();pendingUploads.set(key,file);
     state.dir.push({key,name:file.name,format:file.name.split('.').pop().toUpperCase(),checked:true});
   }render();

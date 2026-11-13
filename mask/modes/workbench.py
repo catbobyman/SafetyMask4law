@@ -163,9 +163,9 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
     @app.get('/api/workspace')
     def workspace():
         # ~$ files are Office owner locks created while a document is open, not materials.
-        return [{'name': p.name, 'supported': p.suffix.lower() in {'.txt', '.docx', '.pdf'}}
+        return [{'name': p.name, 'supported': p.suffix.lower() in {'.txt', '.md', '.docx', '.pdf'}}
                 for p in sorted(project.workspace.iterdir())
-                if p.is_file() and p.suffix.lower() in {'.txt', '.docx', '.pdf', '.doc'} and not p.name.startswith('~$')]
+                if p.is_file() and p.suffix.lower() in {'.txt', '.md', '.docx', '.pdf', '.doc'} and not p.name.startswith('~$')]
 
     @app.post('/api/import-local')
     def import_local(body: dict):

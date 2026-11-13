@@ -159,8 +159,8 @@ class Project:
 
     def add(self, name, data, origin=None):
         ext = Path(name).suffix.lower()
-        if ext not in {'.txt', '.docx', '.pdf'}:
-            raise ValueError('支持 TXT、DOCX、PDF；.doc 请先另存为 .docx')
+        if ext not in {'.txt', '.md', '.docx', '.pdf'}:
+            raise ValueError('支持 TXT、Markdown、DOCX、PDF；.doc 请先另存为 .docx')
         identity = uuid.uuid4().hex
         source = self.directory / (identity + ext)
         source.write_bytes(data)

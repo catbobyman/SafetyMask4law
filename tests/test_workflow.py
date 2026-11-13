@@ -69,6 +69,19 @@ def test_three_formats_preserve_content_and_restore(tmp_path):
     assert {v for v in reloaded.vault.mapping.values()} == {'星河示例科技有限公司', '张三', '13800138000'}
 
 
+def test_markdown_material_keeps_markup(tmp_path):
+    project = Project(tmp_path, tmp_path / 'private')
+    source = ('# 合同\r\n\r\n- **甲方**：星河示例科技有限公司\r\n- 联系人：张三（`13800138000`）\r\n').encode()
+    doc = project.add('合同.md', source)
+    project.recognize(doc, KnownCandidates())
+    confirm(project)
+    output = Path(project.export('original')['files'][0]['path'])
+    assert output.suffix == '.md'
+    masked = output.read_bytes().decode()
+    assert masked.startswith('# 合同\r\n\r\n- **甲方**：<公司[1].公司.名称>\r\n')
+    assert restore(masked, project.vault.mapping)['text'] == source.decode()
+
+
 def test_review_overlap_stale_source_and_unknown_tags(tmp_path):
     project = Project(tmp_path, tmp_path / 'private')
     source = make_files(tmp_path / 'inputs')[0]

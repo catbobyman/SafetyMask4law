@@ -434,7 +434,7 @@ body[data-tool=eraser] .page ::selection{background:var(--keep-wash)}
 <section id="bench" class="win" aria-label="本地工作台"></section>
 <div id="overlay"></div>
 <div id="proto"></div>
-<input id="picker" type="file" multiple accept=".txt,.docx,.pdf" hidden>
+<input id="picker" type="file" multiple accept=".txt,.md,.docx,.pdf" hidden>
 
 <script>
 // PROTOTYPE ONLY. State is in memory. No model, file reads, upload, or host integration.
@@ -1198,8 +1198,8 @@ function stepHistory(from,to,label){
   from.pop();to.push(current);notify(label);
 }
 function addFiles(files){
-  const selected=[...files],accepted=selected.filter(f=>/\.(txt|docx|pdf)$/i.test(f.name));
-  if(!accepted.length){notify('只支持 TXT、DOCX、PDF');return;}
+  const selected=[...files],accepted=selected.filter(f=>/\.(txt|md|docx|pdf)$/i.test(f.name));
+  if(!accepted.length){notify('只支持 TXT、Markdown、DOCX、PDF');return;}
   dispatch({type:'addFiles',files:accepted.map(f=>({name:f.name,format:f.name.split('.').pop().toUpperCase()}))});
   if(accepted.length<selected.length)notify('其余格式未加入');
 }

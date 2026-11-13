@@ -179,7 +179,7 @@ def read_pdf(data):
 
 def read_document(path: Path) -> dict:
     data, ext = path.read_bytes(), path.suffix.lower()
-    if ext == '.txt':
+    if ext in {'.txt', '.md'}:
         text, encoding = decode_text(data)
         result = {'sections': [{'title': '正文', 'paragraphs': [text], 'sources': [{}]}], 'issues': [], 'encoding': encoding}
     elif ext == '.docx':
@@ -187,7 +187,7 @@ def read_document(path: Path) -> dict:
     elif ext == '.pdf':
         result = read_pdf(data)
     else:
-        raise ValueError('支持 TXT、DOCX 和原生 PDF；旧版 .doc 请先另存为 .docx')
+        raise ValueError('支持 TXT、Markdown、DOCX 和原生 PDF；旧版 .doc 请先另存为 .docx')
     if not any(p.strip() for s in result['sections'] for p in s['paragraphs']):
         raise ValueError('没有可处理的文字；扫描件需要 OCR，当前不支持')
     return result
@@ -376,7 +376,7 @@ def export_pdf(source, document, edits, target):
 
 
 def export_original(source: Path, document, edits, target: Path):
-    if source.suffix == '.txt':
+    if source.suffix in {'.txt', '.md'}:
         text = replace_text(document['sections'][0]['paragraphs'][0], edits)
         # UTF-8 output supports every label even when the input used a legacy encoding.
         target.write_bytes(text.encode('utf-8'))
