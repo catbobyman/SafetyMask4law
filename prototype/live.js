@@ -96,22 +96,25 @@ chatView=function(){return '';};
 protoView=function(){return `<div class="live-status">${liveBusy?esc(liveProgress||'处理中…'):savedVersion!==editVersion?'正在保存核对…':'本地工作台 · 核对自动保存'}</div>${liveError?`<aside class="live-error" role="alert"><b>未完成</b><p>${esc(liveError)}</p>${liveRetry?'<button data-a="retry-save">重试保存</button>':''}<button data-a="dismiss-error">关闭提示</button></aside>`:''}`;};
 // 核对页的还原入口在灵动岛里；其他页面放在右上角。
 bar=function({title='',tools='',island=''}={}){
-  return `<header class="bar" data-k="bar"><button class="crumb glass" data-a="home" aria-label="材料列表">${icon('back',15)}<span>Mask</span></button>${title?`<div class="bar-title">${esc(title)}</div>`:''}${island}<div class="bar-tools">${tools}${island?'':`<button class="crumb glass" data-a="restore-open" title="还原 AI 结果中的代号">${icon('down',15)}<span>还原</span></button>`}</div></header>`;
+  return `<header class="bar" data-k="bar">${state.page==='import'?'<div class="brand"><i class="brand-mark"></i>Mask</div>':`<button class="crumb glass" data-a="home" aria-label="材料列表">${icon('back',15)}<span>Mask</span></button>`}${title?`<div class="bar-title">${esc(title)}</div>`:''}${island}<div class="bar-tools">${tools}${island?'':`<button class="crumb glass" data-a="restore-open" title="还原 AI 结果中的代号">${icon('down',15)}<span>还原 AI 结果</span></button>`}</div></header>`;
 };
 islandExtras=function(){return `<button class="isl-btn" data-a="restore-open" title="还原 AI 结果中的代号">${icon('down',16)}<span class="lbl">还原</span></button>`;};
-tile=function(f){
-  if(f.unsupported)return `<button class="tile off" data-k="${f.key}" disabled title="${esc(f.name)}"><span class="slot">${mini(null,2.08)}</span><span class="nm">${esc(f.name)}</span><span class="sub">先另存为 .docx</span></button>`;
+tile=function(f,i){
+  if(f.unsupported)return fileRow({f,i,off:true,sub:'先另存为 .docx'});
   const doc=state.documents.find(d=>d.id===f.docId);
-  return `<button class="tile ${f.checked?'on':''}" data-k="${f.key}" data-a="${doc?'open-existing':'toggle'}" data-v="${f.key}" title="${esc(f.name)}" aria-pressed="${!!f.checked}"><span class="slot">${mini(doc?{template:doc.template,doc}:null,2.08)}<span class="tick">${icon('check',13)}</span></span><span class="nm">${esc(f.name)}</span><span class="sub">${doc?doc.status==='failed'?'识别失败':doc.status==='review'?'继续核对':'待识别':f.local?'工作目录':'待导入'}</span></button>`;
+  if(!doc)return fileRow({f,i,a:'toggle',on:!!f.checked,sub:f.local?'':'待导入'});
+  // 已识别的材料：点行直接回到核对。
+  const ready=doc.status==='review',n=pendingOf(doc),sub=doc.status==='failed'?'识别失败':!ready?'待识别':n?`${n} 处待确认`:'已核对';
+  return fileRow({f,i,a:ready?'open-existing':'',doc:ready?doc:null,sub,hot:doc.status==='failed'||n>0,on:!ready,end:ready?`<span class="f-go">${n?'核对':''}${icon('next',14)}</span>`:''});
 };
 selectPage=function(){
   const n=state.dir.filter(f=>f.checked&&!f.docId).length+state.documents.filter(d=>d.status!=='review').length;
-  const start=n?`<button class="cta hot" data-a="start-scan" ${liveBusy?'disabled':''}>${icon('right',18)}开始识别 ${n} 份</button>`:'';
-  const resume=state.documents.length?`<button class="cta ${n?'soft':''}" data-a="review-open">继续核对已有材料</button>`:'';
+  const start=n?`<button class="cta hot" data-a="start-scan" ${liveBusy?'disabled':''}>开始识别 ${countNum(n)} 份${icon('right',18)}</button>`:'';
+  const resume=state.documents.some(d=>d.status==='review')?`<button class="cta ${n?'soft':'hot'}" data-a="review-open">继续核对</button>`:'';
   // Opened from an agent or in a material folder, the files are already here: materials first, then the one
   // action, then the two rarely changed settings as quiet chips.
   const local=state.dir.filter(f=>f.local&&!f.unsupported).length;
-  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${state.dir.length?'确认需要脱敏的材料':'选择需要脱敏的材料'}</h1><p class="quiet">${local?`已带入工作目录的 ${local} 份`:'TXT · Markdown · Word（.docx）· 原生 PDF'} · 原文与映射只在本机处理</p><div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-a="pick-file" aria-label="添加文件"><span class="slot">${icon('plus',24)}</span></button></div>${start||resume?`<div class="ctas">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}<div class="opts">${scopeLine()}${hostsLine()}</div></main>`;
+  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${!state.dir.length?'选择需要脱敏的材料':!n&&resume?'继续上次的核对':'确认需要脱敏的材料'}</h1><p class="quiet">${icon('lock',13)}${local?`已带入工作目录的 ${local} 份，`:''}原文与映射只在本机处理</p><div class="files">${fileOrder(state.dir).map(tile).join('')}${addRow(state.dir.length,'TXT · Markdown · Word（.docx）· 原生 PDF')}</div>${start||resume?`<div class="ctas wide">${start}${resume}</div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}<div class="opts">${scopeLine()}${hostsLine()}</div></main>`;
 };
 reviewGo=function(){
   const c=counts(state),bad=state.documents.filter(d=>d.status==='failed'),clash=conflicts().length;
@@ -412,19 +415,19 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
   .live-error p{white-space:pre-line;margin:8px 0;max-height:35vh;overflow:auto}.live-error button{padding:6px 12px;border:1px solid var(--line);border-radius:8px;margin:6px 6px 0 0}
   .downloads{display:grid;gap:12px;max-height:40vh;overflow:auto;margin:24px auto}.download{color:var(--ink);display:flex;align-items:center;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;text-decoration:none}
   .alt{display:block;margin:16px auto 0;color:var(--ink2);font-size:13px;text-decoration:underline;text-underline-offset:3px}
-  .tile.off{opacity:.45;cursor:default}
   .scope-group{display:grid;gap:8px}.scope-head{display:flex;align-items:baseline;gap:8px;font-size:13px}.scope-head b{font-weight:600}.scope-head span{flex:1;color:var(--ink2);font-size:12px}.scope-head button{color:var(--ink2);font-size:12px;text-decoration:underline;text-underline-offset:3px}
   .scope-chips{display:flex;flex-wrap:wrap;gap:6px}.scope-chip{padding:5px 12px;border-radius:10px;background:var(--fill);color:var(--ink2);font-size:13px;transition:background-color .15s,color .15s}.scope-chip.on{background:var(--pill);color:var(--pill-fg)}
-  .opts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
-  .opt{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px 0 14px;border-radius:17px;background:var(--fill);color:var(--ink2);font-size:13px;transition:background-color .15s}.opt:hover{background:var(--fill2)}.opt b{font-weight:500;color:var(--ink)}.opt svg{color:var(--ink3)}
+  .opts{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 20px;margin-top:-10px}
+  .opt{display:flex;align-items:center;gap:6px;height:30px;color:var(--ink3);font-size:13px;transition:color .15s}.opt:hover,.opt:hover b{color:var(--ink)}.opt b{font-weight:400;color:var(--ink2);transition:color .15s}.opt svg{color:var(--ink3)}
+  .brand{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;font-size:15px;font-weight:600;letter-spacing:.01em}.brand-mark{width:16px;height:10px;border-radius:3px;background:var(--mask);box-shadow:inset 0 0 0 1px var(--mask-line)}
   .opt .dot{width:7px;height:7px;border-radius:50%;background:var(--ink3)}.opt .dot.on{background:var(--keep)}.opt .dot.todo{background:var(--zhu)}
-  .switch{flex:none;width:46px;height:26px;border-radius:13px;background:var(--fill2);padding:3px;transition:background-color .2s}.switch i{display:block;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s var(--spring)}
-  .switch.on{background:#4a7de0}.switch.on i{transform:translateX(20px)}.switch:disabled{opacity:.5}
+  .switch{flex:none;width:46px;height:26px;border-radius:13px;background:var(--fill2);padding:3px;transition:background-color .2s}.switch i{display:block;width:20px;height:20px;border-radius:50%;background:var(--sheet);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s var(--spring)}
+  .switch.on{background:var(--pill)}.switch.on i{transform:translateX(20px)}.switch:disabled{opacity:.5}
   .gwp{width:min(560px,calc(100% - 24px));gap:18px}.gwp h2{margin:0;padding:0 30px;text-align:center}
   .gwp .bk{position:absolute;top:14px;left:14px;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--fill);color:var(--ink2)}
   .gseg{display:flex;align-self:center;padding:2px;border-radius:18px;background:var(--fill)}.gseg button{height:30px;padding:0 15px;border-radius:15px;color:var(--ink2);font-size:13px}
   .gseg button.on{background:var(--elev);box-shadow:0 0 0 .5px var(--line),0 1px 3px rgba(0,0,0,.08);color:var(--ink);font-weight:500}.gseg.sm button{height:26px;padding:0 12px;font-size:12px}
-  .gdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--ink3)}.gdot.on{background:var(--keep)}.gdot.todo{background:var(--zhu)}.gdot.wait{background:#4a7de0;animation:gwpulse 1.2s ease-in-out infinite}
+  .gdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--ink3)}.gdot.on{background:var(--keep)}.gdot.todo{background:var(--zhu)}.gdot.wait{background:var(--ink2);animation:gwpulse 1.2s ease-in-out infinite}
   @keyframes gwpulse{50%{opacity:.35}}
   .gw{display:flex;align-items:center;gap:8px;padding:11px 14px;border-radius:16px;background:var(--fill);font-size:13px;line-height:1.6;color:var(--ink2)}.gw b{font-weight:600;color:var(--ink)}
   .gw.down{background:var(--wash);color:var(--zhu)}.gw.down b{color:var(--zhu)}.gw button{flex:none;margin-left:auto;height:28px;padding:0 13px;border-radius:14px;background:var(--zhu);color:var(--on-zhu);font-size:12.5px;font-weight:600;white-space:nowrap}
@@ -445,7 +448,7 @@ const liveStyle=document.createElement('style');liveStyle.textContent=`
   .empty{padding:26px 10px;color:var(--ink3);font-size:13px;text-align:center;line-height:1.8}
   @media (max-width:560px){.ag-detail,.lg-x{margin-left:2px}.gw .nums{display:none}.kv{grid-template-columns:1fr;gap:0}.ag-more{padding:0 6px;font-size:0}}
   .modal .quiet,.modal .alt{margin-top:0}.alt:disabled{text-decoration:none}
-  .partial-ack{display:flex;gap:8px;margin:16px 0;align-items:flex-start}.modal h2{margin:22px 0 14px}.quiet{line-height:1.7}.tiles{max-height:45vh;overflow:auto}
+  .partial-ack{display:flex;gap:8px;margin:16px 0;align-items:flex-start}.modal h2{margin:22px 0 14px}.quiet{line-height:1.7}
 `;document.head.append(liveStyle);
 (async()=>{
   state=initialState();state.view='bench';state.phase='working';state.page='import';state.dir=[];state.documents=[];state.entities={};

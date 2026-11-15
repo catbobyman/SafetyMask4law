@@ -58,12 +58,13 @@ body[data-sheet="1"] #bench{transform:scale(.965);border-radius:18px}
 .bar-title{max-width:calc(50vw - 480px);overflow:hidden;color:var(--ink3);font-size:13px;white-space:nowrap;text-overflow:ellipsis}
 .bar-tools{display:flex;align-items:center;gap:8px;margin-left:auto}
 .bar-tools .icon{width:34px;height:34px}
-.island{--if:#F5F5F7;--if2:rgba(245,245,247,.62);--ifill:rgba(245,245,247,.1);--ifill2:rgba(245,245,247,.2);position:absolute;left:50%;top:0;display:flex;align-items:center;gap:2px;height:44px;padding:4px;border-radius:22px;background:var(--isl);color:var(--if);box-shadow:0 0 0 .5px rgba(245,245,247,.1),0 12px 32px -12px rgba(0,0,0,.5);transform:translateX(-50%);animation:island .5s var(--spring)}
+.island,.tools{--if:var(--ink);--if2:var(--ink2);--ifill:var(--fill);--ifill2:var(--fill2);background:var(--glass2);-webkit-backdrop-filter:blur(30px) saturate(1.8);backdrop-filter:blur(30px) saturate(1.8);color:var(--if);box-shadow:0 0 0 .5px var(--line),var(--shadow-1)}
+.island{position:absolute;left:50%;top:0;display:flex;align-items:center;gap:2px;height:44px;padding:4px;border-radius:22px;transform:translateX(-50%);animation:island .5s var(--spring)}
 .sep{flex:none;width:1px;height:18px;margin:0 4px;background:var(--ifill2)}
 .seg{display:flex;flex:none;padding:2px;border-radius:18px;background:var(--ifill)}
 .seg button{height:32px;padding:0 13px;border-radius:16px;color:var(--if2);font-size:13px;white-space:nowrap;transition:background-color .2s,color .2s}
 .seg button:hover:not(.on){color:var(--if)}
-.seg button.on{background:var(--if);color:#121214;font-weight:500}
+.seg button.on{background:var(--sheet);color:var(--ink);font-weight:500;box-shadow:0 0 0 .5px var(--line),0 1px 3px rgba(0,0,0,.08)}
 .isl-btn{display:flex;flex:none;align-items:center;gap:5px;height:36px;padding:0 12px 0 10px;border-radius:18px;color:var(--if2);font-size:13px;white-space:nowrap;transition:background-color .15s,color .15s}
 .isl-btn:hover,.island .icon:hover:not(:disabled){background:var(--ifill);color:var(--if)}
 .isl-btn.on{background:var(--ifill2);color:var(--if)}
@@ -85,7 +86,7 @@ body[data-sheet="1"] #bench{transform:scale(.965);border-radius:18px}
 .act-in{display:flex;align-items:center;gap:5px;animation:pop .28s var(--spring)}
 .act.todo,.act.ready,.act.save{background:var(--zhu);color:var(--on-zhu)}
 .act.ready,.act.save{animation:ready .7s var(--spring)}
-.act.next{background:var(--if);color:#121214}
+.act.next{background:var(--ifill2);color:var(--if)}
 .act.busy,.act.quiet{background:var(--ifill);color:var(--if2)}
 .spin{width:13px;height:13px;border:2px solid var(--ifill2);border-top-color:var(--if);border-radius:50%;animation:spin .9s linear infinite}
 .more{position:static}
@@ -122,25 +123,42 @@ body[data-sheet="1"] #bench{transform:scale(.965);border-radius:18px}
 /* 居中页：选材料、准备环境、交接完成 */
 .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;gap:30px;overflow-y:auto;padding:72px 24px calc(var(--dock-mid) + 92px);animation:fade .4s}
 .center>:first-child{margin-top:auto}
+.center>*{flex-shrink:0}
+/* 入场页没有底部输入栏：上下居中，内容多时整页滚动 */
+.center[data-k=p-import]{padding-bottom:24px}
+.center[data-k=p-import]>:last-child{margin-bottom:auto}
 .ask{max-width:640px;font:500 25px/1.6 var(--doc);text-align:center;text-wrap:balance}
 .quiet{display:flex;align-items:center;gap:6px;margin-top:-20px;color:var(--ink2);font-size:13px}
-.tiles{display:flex;flex-wrap:wrap;justify-content:center;gap:26px 18px;max-width:1030px}
-.tile{display:flex;flex-direction:column;align-items:center;gap:10px;width:128px;text-align:center}
-.slot{position:relative;display:grid;place-items:center;width:110px;height:148px;transition:transform .3s var(--spring)}
-.tile:hover:not(:disabled) .slot{transform:translateY(-3px)}
-.tile .mini{transition:opacity .25s,box-shadow .25s}
-.tile:not(.on) .mini{opacity:.55;box-shadow:0 0 0 .5px var(--line)}
-.tick{position:absolute;top:-7px;right:-7px;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--sheet);box-shadow:inset 0 0 0 1.5px var(--ink3);color:transparent;transition:background-color .2s,box-shadow .2s}
-.tile.on .tick{background:var(--pill);box-shadow:0 0 0 2px var(--bg);color:var(--pill-fg)}
-.tile.locked .tick{background:var(--ink3);box-shadow:0 0 0 2px var(--bg);color:var(--sheet)}
-.tile.off .tick{display:none}
-.tile.off .mini{opacity:.35}
-.tile.off .nm{color:var(--ink3)}
-.nm{display:-webkit-box;overflow:hidden;font-size:13px;line-height:1.4;-webkit-box-orient:vertical;-webkit-line-clamp:2;word-break:break-all}
-.sub{margin-top:-6px;color:var(--ink3);font-size:12px}
-.tile.add .slot{border-radius:12px;box-shadow:inset 0 0 0 1.5px var(--line);color:var(--ink3);transition:color .2s,box-shadow .2s,transform .3s var(--spring)}
-.tile.add:hover .slot{box-shadow:inset 0 0 0 1.5px var(--ink3);color:var(--ink)}
-body.dropping .tile.add .slot{box-shadow:inset 0 0 0 2px var(--ink);color:var(--ink)}
+.files{display:flex;flex-direction:column;width:min(560px,100%);padding:6px;border-radius:20px;background:var(--sheet);box-shadow:var(--shadow-1)}
+.file{position:relative;display:flex;align-items:center;gap:14px;width:100%;min-height:64px;padding:8px 14px 8px 10px;border-radius:14px;text-align:left;animation:rowin .5s var(--spring) both;animation-delay:calc(var(--i,0)*45ms);transition:background-color .15s}
+.file:not(:first-child)::before{content:"";position:absolute;top:0;left:62px;right:14px;border-top:.5px solid var(--line)}
+.file:hover:not(:disabled){background:var(--fill)}
+.file:hover:not(:disabled)::before,.file:hover:not(:disabled)+.file::before{opacity:0}
+.file:disabled{cursor:default}
+.fmt{display:grid;flex:none;place-items:center;width:38px;height:48px;border-radius:5px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--line);color:var(--ink2);font:600 10.5px/1 var(--ui);letter-spacing:.04em}
+.file .mini{flex:none;margin:0 1px}
+.f-main{display:grid;flex:1;gap:1px;min-width:0}
+.f-name{overflow:hidden;font-size:15px;white-space:nowrap;text-overflow:ellipsis}
+.file[aria-pressed=false] .f-name,.file[aria-pressed=false] .fmt{color:var(--ink3)}
+.f-sub{color:var(--ink3);font-size:12.5px}
+.f-sub.hot{color:var(--zhu)}
+.chk{display:grid;flex:none;place-items:center;width:24px;height:24px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--ink2);color:transparent;transition:background-color .2s,box-shadow .2s}
+.file.on .chk{background:var(--pill);box-shadow:none;color:var(--pill-fg);animation:ready .4s var(--spring)}
+.file.locked .chk{background:var(--fill2);box-shadow:none;color:var(--ink2)}
+.f-go{display:flex;flex:none;align-items:center;gap:2px;color:var(--ink2);font-size:13px}
+.file.off{color:var(--ink3)}
+.file.off .fmt{opacity:.5}
+.file.add{color:var(--ink2)}
+.file.add .fmt{background:none;box-shadow:none;border:1.5px dashed var(--ink3);color:var(--ink3)}
+.file.add:hover .fmt,body.dropping .file.add .fmt{border-color:var(--ink);color:var(--ink)}
+body.dropping .file.add{background:var(--fill)}
+.wide{width:min(560px,100%)}
+/* 文件多时清单滚动，主按钮停在底部 */
+.center>.wide:not(.files){position:sticky;bottom:24px;z-index:2}
+.center>.wide:not(.files)::before{content:"";position:absolute;z-index:-1;inset:-36px -24px -24px;background:linear-gradient(transparent,var(--bg) 32px);pointer-events:none}
+.ctas.wide{flex-wrap:nowrap}
+.ctas.wide .cta{flex:1;padding:0 16px}
+.num{display:inline-block;animation:numin .32s var(--spring)}
 .steps{display:flex;flex-direction:column;gap:2px;width:min(340px,100%)}
 .stp{display:flex;align-items:center;gap:12px;padding:9px 4px;font-size:15px}
 .stp small{margin-left:auto;color:var(--ink3);font-size:13px}
@@ -215,6 +233,11 @@ body.dragging .h{pointer-events:none}
 .callout::after{content:"";position:absolute;left:var(--tail,50%);width:12px;height:12px;margin-left:-6px;border-radius:2px;background:inherit;transform:rotate(45deg)}
 .callout[data-side=top]::after{bottom:-5px}
 .callout[data-side=bottom]::after{top:-5px}
+/* 宽屏：停在文档右侧空白处，与该词同高，用细线连回正文 */
+.callout[data-side=side] .pick{flex:1 0 100%;margin-top:2px}
+.callout[data-side=side] .pick button{flex:1}
+.callout[data-side=side]::before{content:"";position:absolute;right:100%;top:var(--ly);width:var(--lead);border-top:1px solid var(--ink3);opacity:.7}
+.callout[data-side=side]::after{display:none}
 .why{padding:3px 8px 5px;color:var(--ink2)}
 .why.hot{color:var(--zhu)}
 .co-row{position:relative;z-index:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px}
@@ -223,9 +246,13 @@ body.dragging .h{pointer-events:none}
 .chip:disabled{opacity:.4}
 .chip.plain{padding:0 10px}
 .chip.hot{background:var(--wash);color:var(--zhu)}
+.chip.merge{background:var(--fill);color:var(--ink)}
 .pick{display:flex;overflow:hidden;padding:2px;border-radius:13px;background:var(--fill)}
 .pick button{display:flex;align-items:center;justify-content:center;gap:5px;height:36px;padding:0 12px 0 10px;border-radius:11px;white-space:nowrap;color:var(--ink);transition:background-color .2s,color .2s}
 .pick button:hover:not(.on):not(.off){background:var(--fill)}
+.pick button.keep:not(.on):not(.off){color:var(--keep);box-shadow:inset 0 -2px 0 var(--keep)}
+.pick button:not(.keep):not(.on):not(.off){box-shadow:inset 0 0 0 1.5px var(--mask)}
+.pick{gap:4px}
 .pick button.on{background:var(--mask);box-shadow:inset 0 0 0 1px var(--mask-line);color:var(--mask-fg)}
 .pick button.keep.on{background:var(--keep);box-shadow:none;color:var(--sheet)}
 .pick button.off{color:var(--ink3);cursor:not-allowed}
@@ -251,7 +278,7 @@ body.dragging .h{pointer-events:none}
 .rail .icon{width:40px;height:40px;color:var(--ink3)}
 
 /* 待处理看板：主按钮背后的清单，一行一处 */
-.board{position:absolute;z-index:13;left:104px;top:64px;display:flex;flex-direction:column;width:236px;max-height:calc(100% - 176px);border-radius:20px;background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(1.8);backdrop-filter:blur(30px) saturate(1.8);box-shadow:0 0 0 .5px var(--line),var(--shadow-1);transform-origin:0 0;animation:pop .3s var(--spring)}
+.board{position:absolute;z-index:13;left:16px;top:64px;display:flex;flex-direction:column;width:248px;max-height:calc(100% - 80px);border-radius:20px;background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(1.8);backdrop-filter:blur(30px) saturate(1.8);box-shadow:0 0 0 .5px var(--line),var(--shadow-1);transform-origin:0 0;animation:pop .3s var(--spring)}
 .board:not(.open){width:auto}
 .board-head{display:flex;flex:none;align-items:center;gap:2px;padding:6px 6px 6px 8px}
 .bt{display:flex;align-items:center;gap:6px;height:32px;padding:0 11px;border-radius:16px;color:var(--ink2);font-size:13px;white-space:nowrap;transition:background-color .15s,color .15s}
@@ -266,14 +293,24 @@ body.dragging .h{pointer-events:none}
 .page+.sheet-no{margin-top:32px}
 /* 原文的一页按 A4 比例显示，内容少时也看得出是一整页 */
 .page.pg{min-height:calc(min(720px,100vw - 48px)*1.414)}
-.board-all{display:flex;flex:none;align-items:center;justify-content:center;gap:6px;height:34px;margin:0 12px 10px;border-radius:17px;background:var(--mask);box-shadow:inset 0 0 0 1px var(--mask-line);color:var(--mask-fg);font-size:13px;font-weight:500;transition:transform .2s var(--spring)}
-.board-all:active{transform:scale(.97)}
-.legend{display:flex;flex:none;flex-wrap:wrap;gap:4px 10px;padding:0 12px 10px;color:var(--ink3);font-size:12px;font-variant-numeric:tabular-nums}
+.board-all{display:flex;align-items:center;justify-content:center;gap:6px;width:calc(100% - 8px);height:34px;margin:8px 4px 2px;border-radius:17px;background:var(--fill);color:var(--ink);font-size:13px;transition:background-color .15s}
+.board-all:hover{background:var(--fill2)}
+.legend{display:flex;flex:none;flex-wrap:wrap;gap:4px 12px;padding:2px 14px 10px;color:var(--ink2);font-size:12px;font-variant-numeric:tabular-nums}
 .legend .m{margin:0 4px 0 0;padding:.05em .35em;cursor:default}
 .legend .m.q,.legend .m.k{color:var(--ink)}
 .legend>span{white-space:nowrap}
 .board-list{overflow-y:auto;padding:4px 6px 8px;border-top:.5px solid var(--line);scrollbar-width:thin;scrollbar-color:var(--fill2) transparent}
-.board-doc{overflow:hidden;padding:10px 10px 2px;color:var(--ink3);font-size:12px;white-space:nowrap;text-overflow:ellipsis}
+.board-doc{display:flex;align-items:center;gap:10px;width:100%;margin-top:4px;padding:6px 8px;border-radius:12px;color:var(--ink);font-size:13px;font-weight:500;text-align:left;transition:background-color .15s,color .15s}
+.board-doc:hover{background:var(--fill);color:var(--ink)}
+.board-doc.on{background:var(--fill)}
+.board-doc .mini{flex:none;box-shadow:0 0 0 .5px var(--line)}
+.board-doc.on .mini{box-shadow:0 0 0 1.5px var(--ink)}
+.bd-name{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.bd-n{flex:none;min-width:19px;height:19px;padding:0 5px;border-radius:10px;background:var(--zhu);color:var(--on-zhu);font:600 11px/19px var(--ui);text-align:center}
+.bd-n.ok{display:grid;place-items:center;padding:0;background:none;color:var(--keep)}
+.bd-n.wait{background:none;color:var(--ink3);font-weight:400}
+.board-doc+.board-doc{margin-top:0}
+.board-doc~.brow{padding-left:44px}
 .brow{display:flex;flex-direction:column;gap:1px;width:100%;padding:6px 10px;border-radius:12px;text-align:left;transition:background-color .15s}
 .brow:hover{background:var(--fill)}
 .brow.on{background:var(--fill2)}
@@ -283,7 +320,9 @@ body.dragging .h{pointer-events:none}
 .brow-hint,.brow-state{max-width:100%;overflow:hidden;color:var(--ink2);font-size:12px;white-space:nowrap;text-overflow:ellipsis}
 .brow-hint.hot,.brow-state.hot{color:var(--zhu)}
 .brow-state{font-size:13px}
-@media (min-width:1061px){.board.open~.canvas{padding-left:max(24px,calc(1456px - 100vw))}.canvas:has(~.inspector.open){padding-right:352px}.board.open~.canvas:has(~.inspector.open){padding-left:352px}}
+#bench:has(.tools) .canvas{padding-top:124px}
+@media (min-width:761px){.board.open~.rail{display:none}.board:not(.open)~.rail{top:116px}}
+@media (min-width:1061px){.board.open~.canvas{padding-left:max(24px,calc(1310px - 100vw))}.canvas:has(~.inspector.open){padding-right:352px}.board.open~.canvas:has(~.inspector.open){padding-left:352px}}
 
 /* 实体与代号 */
 .inspector{position:absolute;z-index:18;top:64px;right:12px;bottom:12px;width:328px;overflow-y:auto;padding:12px 8px 16px;border-radius:22px;background:var(--glass2);-webkit-backdrop-filter:blur(30px) saturate(1.8);backdrop-filter:blur(30px) saturate(1.8);box-shadow:0 0 0 .5px var(--line),var(--shadow-2);transform:translateX(calc(100% + 24px));visibility:hidden;transition:transform .5s var(--spring),visibility .5s}
@@ -361,19 +400,18 @@ body.flying .page{animation:fly .52s cubic-bezier(.5,0,.75,0) forwards}
 .proto-panel p{color:var(--ink2);line-height:1.6}
 
 /* 底部工具栏：在原文上直接涂、擦、框 */
-.tools{--if:#F5F5F7;--if2:rgba(245,245,247,.62);--ifill:rgba(245,245,247,.1);--ifill2:rgba(245,245,247,.2);position:absolute;z-index:20;left:50%;bottom:20px;display:flex;align-items:center;gap:2px;padding:6px;border-radius:28px;background:var(--isl);color:var(--if);box-shadow:0 0 0 .5px rgba(245,245,247,.1),0 12px 32px -12px rgba(0,0,0,.5);transform:translateX(-50%);animation:island .4s var(--spring)}
-.tl{display:grid;flex:none;place-items:center;width:42px;height:42px;border-radius:21px;color:var(--if2);transition:background-color .15s,color .15s}
+.tools{position:absolute;z-index:16;left:50%;top:64px;display:flex;align-items:center;gap:2px;padding:4px;border-radius:24px;transform:translateX(-50%);transform-origin:50% 0;animation:tray .3s var(--spring)}
+.tl{display:grid;flex:none;place-items:center;width:40px;height:40px;border-radius:20px;color:var(--if2);transition:background-color .15s,color .15s}
 .tl:hover:not(:disabled){background:var(--ifill);color:var(--if)}
 .tl.on{background:var(--ifill2);color:var(--if)}
 .tl:disabled{opacity:.3}
 .tl-group{position:relative;display:flex;align-items:center}
-.tl-dd{display:grid;place-items:center;width:20px;height:42px;margin-left:-2px;border-radius:10px;color:var(--if2)}
+.tl-dd{display:grid;place-items:center;width:20px;height:40px;margin-left:-2px;border-radius:10px;color:var(--if2)}
 .tl-dd:hover{color:var(--if)}
 .tl-tag{padding:0 8px 0 2px;color:var(--if2);font-size:12px;white-space:nowrap}
-.tools .menu{left:0;bottom:calc(100% + 14px);color:var(--ink);transform-origin:12% 100%}
+.tools .menu{left:0;top:calc(100% + 10px);bottom:auto;color:var(--ink);transform-origin:12% 0}
 .tools .menu.cats{display:grid;grid-template-columns:repeat(3,auto);min-width:0}
 .menu button.on{background:var(--fill2)}
-.canvas[data-k=p-review]{padding-bottom:112px}
 #lasso{position:fixed;z-index:25;border:1.5px dashed var(--ink2);border-radius:4px;background:var(--fill);pointer-events:none}
 body[data-tool=box] .page{cursor:crosshair;user-select:none;-webkit-user-select:none}
 body[data-tool=pen] .page{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linejoin='round'%3E%3Cpath d='M15 4l5 5-9 9H6v-5Z' stroke='white' stroke-width='4'/%3E%3Cpath d='M15 4l5 5-9 9H6v-5Z' fill='%231D1D1F' stroke='%231D1D1F' stroke-width='1.5'/%3E%3C/svg%3E") 6 18,text}
@@ -383,11 +421,14 @@ body[data-tool=pen] .page ::selection{background:var(--mask);color:var(--mask-fg
 body[data-tool=eraser] .page ::selection{background:var(--keep-wash)}
 @keyframes spin{to{rotate:360deg}}
 @keyframes island{from{opacity:0;scale:.8}}
+@keyframes tray{from{opacity:0;transform:translate(-50%,-8px) scale(.96)}}
 @keyframes fade{from{opacity:0}}
 @keyframes pop{from{opacity:0;transform:scale(.9)}}
 @keyframes ready{0%{transform:scale(.8)}45%{transform:scale(1.14)}100%{transform:scale(1)}}
 @keyframes nudge{0%,100%{transform:scale(1)}50%{transform:scale(1.5)}}
 @keyframes rise{from{opacity:0;transform:translate(-50%,40px) scale(.96)}}
+@keyframes rowin{from{opacity:0;transform:translateY(8px)}}
+@keyframes numin{from{opacity:0;transform:translateY(55%)}}
 @keyframes fly{to{opacity:0;transform:translateY(-92vh) scale(.62)}}
 @media (max-width:1200px){.bar-title{display:none}}
 @media (max-width:1000px){.island{position:static;margin:0 auto;transform:none}}
@@ -403,7 +444,7 @@ body[data-tool=eraser] .page ::selection{background:var(--keep-wash)}
   .isl-find input{width:0}
   .isl-find input:focus,.isl-find.has input{width:88px}
   .island:has(.isl-find:focus-within) .isl-btn,.island:has(.isl-find.has) .isl-btn{display:none}
-  .tools{bottom:12px;padding:4px}
+  .tools{top:62px;padding:3px}
   .tl{width:38px;height:38px}
   .tl-tag{display:none}
   .dock{bottom:16px}
@@ -417,7 +458,6 @@ body[data-tool=eraser] .page ::selection{background:var(--keep-wash)}
   .board{top:136px;left:10px;max-height:calc(100% - 220px)}
   .board.open{width:min(280px,calc(100% - 20px))}
   .ask{font-size:21px}
-  .tiles{gap:18px 14px}
   .composer-box{padding:6px 12px 14px}
   .thread{padding:44px 14px 10px}
   #proto{bottom:auto;top:12px;left:auto;right:12px}
@@ -492,7 +532,7 @@ const workspaceFiles=()=>[
   {key:'f4',name:'扫描版授权书.pdf',format:'PDF',unsupported:'扫描件暂不支持'},
   {key:'f5',name:'报价明细.xlsx',format:'XLSX',unsupported:'格式暂不支持'}
 ];
-const initialState=(host='Codex')=>({tool:'pointer',penType:'auto',boxMode:'mask',toolsOpen:true,view:'chat',phase:'idle',page:'import',host,scenario:'full',draft:HOSTS[host].entry+' '+defaultTask,task:'',chat:[],dir:workspaceFiles(),documents:[],entities:seedEntities(),current:0,selected:null,sel:null,selType:'',pick:'',preview:'original',inspector:false,menu:false,sheet:'',peek:null,search:'',hit:-1,setupDone:true,setupProgress:null,opened:false,restoreInput:'',restoreFix:{},miss:null,restored:false,nextId:1,nextManual:1,reused:false});
+const initialState=(host='Codex')=>({tool:'pointer',penType:'auto',boxMode:'mask',toolsOpen:false,view:'chat',phase:'idle',page:'import',host,scenario:'full',draft:HOSTS[host].entry+' '+defaultTask,task:'',chat:[],dir:workspaceFiles(),documents:[],entities:seedEntities(),current:0,selected:null,sel:null,selType:'',pick:'',preview:'original',inspector:false,menu:false,sheet:'',peek:null,search:'',hit:-1,setupDone:true,setupProgress:null,opened:false,restoreInput:'',restoreFix:{},miss:null,restored:false,nextId:1,nextManual:1,reused:false});
 
 const paraText=(d,c)=>COMPILED[d.template].sections[c.s].paragraphs[c.p];
 const scanned=s=>s.documents.filter(d=>d.scan>=100);
@@ -938,14 +978,21 @@ function setupPage(){
   const rows=[['本地服务',1,''],['llama.cpp',Math.min(1,p/45),''],['HaS 模型',Math.max(0,(p-45)/55),'约 640 MB']];
   return bar()+`<main class="center" data-k="p-setup"><h1 class="ask">准备本地环境</h1><div class="steps">${rows.map(([name,v,note])=>`<div class="stp">${v>=1?`<span class="tick-on">${icon('check',13)}</span>`:`<svg class="dial" viewBox="0 0 24 24" aria-hidden="true"><circle class="tr" cx="12" cy="12" r="9"/><circle class="va" cx="12" cy="12" r="9" style="stroke-dashoffset:${(56.5*(1-v)).toFixed(1)}"/></svg>`}${name}<small>${note}</small></div>`).join('')}</div></main>`+dock('setup',`<div class="field"><span class="field-text">只下载运行环境，不读取文档</span></div>${go({cls:'next',a:'install',label:'安装',inner:icon('down',20),disabled:installing,key:'install'})}`);
 }
-function tile(f){
-  const doc=state.documents.find(d=>d.id===f.docId),off=!!f.unsupported,locked=!!doc;
-  const sub=f.unsupported||(doc?.handed?'已交接':doc?'已加入':f.custom?'示例正文':'');
-  return `<button class="tile ${f.checked&&!off?'on':''} ${off?'off':''} ${locked?'locked':''}" data-k="${f.key}" data-a="toggle" data-v="${f.key}" aria-pressed="${!!f.checked}" title="${esc(f.name)}" ${off||locked?'disabled':''}><span class="slot">${mini(f.template==null?null:{template:f.template,doc},2.08)}<span class="tick">${icon('check',13)}</span></span><span class="nm">${esc(f.name)}</span>${sub?`<span class="sub">${esc(sub)}</span>`:''}</button>`;
+// 入场页的一行：格式标记或真实缩略图、文件名、例外说明，右侧是勾选或去向。
+function fileRow({f,i,a='',on=false,off=false,locked=false,sub='',hot=false,doc=null,end=''}){
+  const lead=doc?mini({template:doc.template,doc},.73):`<span class="fmt">${esc(f.format||f.name.split('.').pop().toUpperCase())}</span>`;
+  return `<button class="file ${on?'on':''} ${off?'off':''} ${locked?'locked':''}" style="--i:${i}" data-k="${f.key}" ${a?`data-a="${a}" data-v="${f.key}"`:''} title="${esc(f.name)}" ${a?'':'disabled'} ${a==='toggle'?`aria-pressed="${on}"`:''}>${lead}<span class="f-main"><span class="f-name">${esc(f.name)}</span>${sub?`<span class="f-sub ${hot?'hot':''}">${esc(sub)}</span>`:''}</span>${end||(off?'':`<span class="chk">${icon('check',14)}</span>`)}</button>`;
+}
+const addRow=(i,sub)=>`<button class="file add" style="--i:${i}" data-k="add" data-a="pick-file" title="添加文件，或把文件拖到这里"><span class="fmt">${icon('plus',18)}</span><span class="f-main"><span class="f-name">添加文件，或拖到这里</span><span class="f-sub">${sub}</span></span></button>`;
+const countNum=n=>`<b class="num" data-k="c${n}">${n}</b>`;
+const fileOrder=dir=>dir.slice().sort((a,b)=>!!a.unsupported-!!b.unsupported);
+function tile(f,i){
+  const doc=state.documents.find(d=>d.id===f.docId),off=!!f.unsupported;
+  return fileRow({f,i,a:off||doc?'':'toggle',on:f.checked&&!off&&!doc,off,locked:!!doc,doc,sub:f.unsupported||(doc?.handed?'已交接':doc?'已加入':f.custom?'示例正文':'')});
 }
 function selectPage(){
   const fresh=state.dir.filter(f=>f.checked&&!f.docId).length;
-  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${esc(state.task)}</h1>${state.reused?`<p class="quiet">${icon('check',14)}沿用本项目代号</p>`:''}<div class="tiles">${state.dir.map(tile).join('')}<button class="tile add" data-k="add" data-a="pick-file" aria-label="添加文件" title="添加文件，或把文件拖到这里"><span class="slot">${icon('plus',24)}</span></button></div>${fresh?`<button class="cta hot" data-a="start-scan">${icon('right',18)}开始识别 ${fresh} 份</button>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}</main>`;
+  return bar()+`<main class="center" data-k="p-import"><h1 class="ask">${esc(state.task)}</h1>${state.reused?`<p class="quiet">${icon('check',14)}沿用本项目代号</p>`:''}<div class="files">${fileOrder(state.dir).map(tile).join('')}${addRow(state.dir.length,'TXT · Markdown · Word（.docx）· 原生 PDF')}</div>${fresh?`<div class="ctas wide"><button class="cta hot" data-a="start-scan">开始识别 ${countNum(fresh)} 份${icon('right',18)}</button></div>`:'<p class="quiet">勾选或添加材料后开始识别</p>'}</main>`;
 }
 function markHtml(c,here,cur){
   const ai=state.preview==='masked',on=state.selected===c.id;
@@ -982,7 +1029,7 @@ function calloutFor(d){
   const peerName=x=>maskedCands(state).find(y=>y.c.entity===x.id)?.c.original||c.original;
   const suggest=c.suggest&&c.decision==='pending'&&c.entity!==c.suggest?state.entities[c.suggest]:null;
   const code=c.decision==='mask'?token(state,c):tagFor(e);
-  return `<div class="callout" data-k="co" data-float role="dialog" aria-label="${esc(c.original)}">${c.reason?`<p class="why ${c.decision==='pending'?'hot':''}">${esc(c.reason)}</p>`:''}<div class="co-row"><button class="chip" data-a="pick" data-v="type" title="类别" aria-expanded="${state.pick==='type'}">${esc(type)}${icon('chev',14)}</button>${suggest?`<button class="chip plain hot" data-a="merge" title="并入这个主体并遮住">= ${esc(allCands(state).find(x=>x.c.entity===suggest.id)?.c.original||peerName(suggest))}</button>`:c.decision==='keep'?'':`<button class="chip" data-a="pick" data-v="entity" title="代号" aria-expanded="${state.pick==='entity'}">${esc(code)}${icon('chev',14)}</button>`}<span class="grow"></span>${same.length>1?`<button class="chip plain ${c.decision!=='pending'&&samePending(c)?'hot':''}" data-a="sync" title="同步到全部 ${same.length} 处（S）" aria-keyshortcuts="S" aria-label="同步到全部 ${same.length} 处" ${c.decision==='pending'?'disabled':''}>${icon('stack',15)}&nbsp;${c.decision!=='pending'&&samePending(c)?'同步 ':''}${same.length}</button>`:''}<div class="pick" role="group" aria-label="决定"><button class="keep ${c.decision==='keep'?'on':''}" data-a="keep" title="保留（K）" aria-keyshortcuts="K">${icon('eye',18)}保留</button><button class="${c.decision==='mask'?'on':''} ${c.bad?'off':''}" data-a="mask" title="${c.bad?'先调整范围':'遮住（M）'}" aria-keyshortcuts="M">${icon('eyeOff',18)}遮住</button></div></div>${state.pick==='type'?`<div class="choices">${CATEGORIES.map(x=>`<button class="${x===type?'on':''}" data-a="type" data-v="${x}">${x}</button>`).join('')}</div>`:''}${state.pick==='entity'?`<div class="choices list">${peers.map(x=>`<button class="${x.id===c.entity?'on':''}" data-a="entity" data-v="${x.id}">${esc(peerName(x))}</button>`).join('')}<button data-a="entity" data-v="new">${icon('plus',14)} 新主体</button></div>`:''}</div>`;
+  return `<div class="callout" data-k="co" data-float role="dialog" aria-label="${esc(c.original)}">${c.reason?`<p class="why ${c.decision==='pending'?'hot':''}">${esc(c.reason)}</p>`:''}<div class="co-row"><button class="chip" data-a="pick" data-v="type" title="类别" aria-expanded="${state.pick==='type'}">${esc(type)}${icon('chev',14)}</button>${suggest?`<button class="chip plain merge" data-a="merge" title="并入这个主体并遮住">= ${esc(allCands(state).find(x=>x.c.entity===suggest.id)?.c.original||peerName(suggest))}</button>`:c.decision==='keep'?'':`<button class="chip" data-a="pick" data-v="entity" title="代号" aria-expanded="${state.pick==='entity'}">${esc(code)}${icon('chev',14)}</button>`}<span class="grow"></span>${same.length>1?`<button class="chip plain ${c.decision!=='pending'&&samePending(c)?'hot':''}" data-a="sync" title="同步到全部 ${same.length} 处（S）" aria-keyshortcuts="S" aria-label="同步到全部 ${same.length} 处" ${c.decision==='pending'?'disabled':''}>${icon('stack',15)}&nbsp;${c.decision!=='pending'&&samePending(c)?'同步 ':''}${same.length}</button>`:''}<div class="pick" role="group" aria-label="决定"><button class="keep ${c.decision==='keep'?'on':''}" data-a="keep" title="保留（K）" aria-keyshortcuts="K">${icon('eye',18)}保留</button><button class="${c.decision==='mask'?'on':''} ${c.bad?'off':''}" data-a="mask" title="${c.bad?'先调整范围':'遮住（M）'}" aria-keyshortcuts="M">${icon('eyeOff',18)}遮住</button></div></div>${state.pick==='type'?`<div class="choices">${CATEGORIES.map(x=>`<button class="${x===type?'on':''}" data-a="type" data-v="${x}">${x}</button>`).join('')}</div>`:''}${state.pick==='entity'?`<div class="choices list">${peers.map(x=>`<button class="${x.id===c.entity?'on':''}" data-a="entity" data-v="${x.id}">${esc(peerName(x))}</button>`).join('')}<button data-a="entity" data-v="new">${icon('plus',14)} 新主体</button></div>`:''}</div>`;
 }
 function paper(d,hits){
   const t=templates[d.template],ai=state.preview==='masked';
@@ -1011,7 +1058,7 @@ function todoHint(d,c){
   const outer=d.candidates.find(o=>o!==c&&o.decision!=='keep'&&o.s===c.s&&o.p===c.p&&o.start<=c.start&&o.end>=c.end&&o.end-o.start>c.end-c.start);
   if(outer)return {text:`在「${outer.original}」里`};
   const full=c.suggest&&c.entity!==c.suggest&&allCands(state).find(x=>x.c.entity===c.suggest);
-  if(full)return {text:'= '+full.c.original,hot:true};
+  if(full)return {text:'= '+full.c.original};
   if(c.bad)return {text:'范围过宽，先拖手柄'};
   return null;
 }
@@ -1035,16 +1082,20 @@ function board(){
   const total=groups.reduce((t,g)=>t+g.rows.length,0),every=allCands(state).length;
   if(!total&&!every)return '';
   const open=state.boardOpen??!matchMedia('(max-width:1060px)').matches,n=counts(state),tab=total&&state.boardTab!=='all'?'todo':'all';
-  const docName=(d,i)=>state.documents.length>1?`<div class="board-doc" data-k="bh${d.id}">${esc(state.preview==='masked'?'材料 '+(i+1):d.name)}</div>`:'';
-  const list=tab==='todo'?groups.map(g=>docName(g.d,g.i)+g.rows.map(todoRow).join('')).join('')
+  // 文件行兼作缩略图栏：看板展开时不再单独显示左侧缩略图。
+  const docName=(d,i)=>{
+    const p=pendingOf(d),st=d.status==='failed'?'<span class="bd-n">识别失败</span>':d.scan<100?`<span class="bd-n wait">${d.status==='queued'?'待识别':'识别中'}</span>`:p?`<span class="bd-n">${p}</span>`:`<span class="bd-n ok" title="无待确认">${icon('check',13)}</span>`;
+    return `<button class="board-doc ${i===state.current?'on':''}" data-k="bh${d.id}" data-a="todo" data-i="${i}" title="${esc(d.name)}">${mini({template:d.template,doc:d},.5)}<span class="bd-name">${esc(state.preview==='masked'?'材料 '+(d.no??i+1):d.name)}</span>${st}</button>`;
+  };
+  const byDoc=new Map(groups.map(g=>[g.d,g.rows]));
+  const list=tab==='todo'?state.documents.map((d,i)=>docName(d,i)+(byDoc.get(d)||[]).filter(x=>x.c).map(todoRow).join('')).join('')+(maskable(state)?`<button class="board-all" data-a="mask-all" title="遮住全部待确认；已决定的不变，范围过宽的仍需手动处理">${icon('lock',14)}其余 ${maskable(state)} 处全部遮住</button>`:'')
     :state.documents.map((d,i)=>{
       const rows=scanned(state).includes(d)?d.candidates.slice().sort((a,b)=>a.s-b.s||a.p-b.p||a.start-b.start):[];
-      if(!rows.length)return '';
       const pages=sheetsOf(d);
       return docName(d,i)+rows.map(c=>allRow({d,i,c},pages)).join('');
     }).join('');
   const head=`<div class="board-head" role="tablist">${total?`<button class="bt todo ${tab==='todo'?'on':''}" role="tab" aria-selected="${tab==='todo'}" data-a="board-tab" data-v="todo">待处理<b>${total}</b></button>`:''}<button class="bt ${tab==='all'?'on':''}" role="tab" aria-selected="${tab==='all'}" data-a="board-tab" data-v="all" title="每一处候选，含重叠项">全部候选<b>${every}</b></button><button class="icon" data-a="board" aria-expanded="${open}" aria-label="${open?'收起':'展开'}看板" title="${open?'收起':'展开'}">${icon('chev',15)}</button></div>`;
-  return `<aside class="board ${open?'open':''}" data-k="board" aria-label="候选看板">${head}${open?`${maskable(state)?`<button class="board-all" data-a="mask-all" title="遮住全部待确认；已决定的不变，范围过宽的仍需手动处理">${icon('lock',14)}全部遮住 ${maskable(state)} 处</button>`:''}<div class="legend"><span><span class="m q">待确认</span>${n.pending}</span><span><span class="m x">遮住</span>${n.masked}</span><span><span class="m k">保留</span>${n.kept}</span></div><div class="board-list">${list}</div>`:''}</aside>`;
+  return `<aside class="board ${open?'open':''}" data-k="board" aria-label="候选看板">${head}${open?`<div class="legend"><span><span class="m q">待确认</span>${n.pending}</span><span><span class="m x">遮住</span>${n.masked}</span><span><span class="m k">保留</span>${n.kept}</span></div><div class="board-list">${list}</div>`:''}</aside>`;
 }
 function inspector(){
   const groups={},byType={};
@@ -1061,7 +1112,7 @@ function inspector(){
 }
 function toolsBar(){
   if(state.preview==='masked')return '';
-  if(!state.toolsOpen)return `<div class="tools" data-k="tools" role="toolbar" aria-label="编辑工具"><button class="tl" data-a="tools-open" title="打开工具栏" aria-label="打开工具栏">${icon('marker',19)}</button></div>`;
+  if(!state.toolsOpen)return '';
   const t=state.tool,tool=(id,ic,label,key)=>`<button class="tl ${t===id?'on':''}" data-a="tool" data-v="${id}" title="${label}（${key}）" aria-label="${label}" aria-pressed="${t===id}">${icon(ic,19)}</button>`;
   const choose=(pick,action,list,cur,cls='')=>state.pick===pick?`<div class="menu ${cls}" role="menu">${list.map(([v,l])=>`<button role="menuitemradio" aria-checked="${v===cur}" class="${v===cur?'on':''}" data-a="${action}" data-v="${v}">${esc(l)}</button>`).join('')}</div>`:'';
   const dd=(pick,label)=>`<button class="tl-dd" data-a="pick" data-v="${pick}" title="${label}" aria-label="${label}" aria-expanded="${state.pick===pick}">${icon('chev',14)}</button>`;
@@ -1071,13 +1122,13 @@ function toolsBar(){
     +tool('eraser','eraser','橡皮：点或划过改为保留','E')
     +`<div class="tl-group">${tool('box','lasso','框选：框内全部'+boxLabel,'R')}${dd('box-mode','框选方式：'+boxLabel)}${t==='box'?`<span class="tl-tag">${boxLabel}</span>`:''}${choose('box-mode','box-mode',[['mask','框内全部遮住'],['keep','框内全部保留']],state.boxMode)}</div>`
     +`<span class="sep"></span><button class="tl" data-a="undo" title="撤销（Ctrl+Z）" aria-label="撤销" ${undoStack.length?'':'disabled'}>${icon('undo',19)}</button><button class="tl" data-a="redo" title="重做（Ctrl+Shift+Z）" aria-label="重做" ${redoStack.length?'':'disabled'}>${icon('redo',19)}</button>`
-    +`<span class="sep"></span><button class="tl" data-a="tools-close" title="收起工具栏，回到指针（Esc）" aria-label="收起工具栏">${icon('x',18)}</button></div>`;
+    +`<span class="sep"></span><button class="tl" data-a="tools-close" title="收起标注工具，回到指针（Esc）" aria-label="收起标注工具">${icon('x',18)}</button></div>`;
 }
 function islandExtras(){return '';}
 function reviewPage(){
   const d=state.documents[state.current],hits=searchHits(state),q=state.search.trim(),missed=hits.filter(h=>!h.marked).length,ai=state.preview==='masked';
   const find=q?`<span class="isl-n">${hits.length?(state.hit>=0?`${state.hit+1}/${hits.length}`:`${hits.length} 处`):'无结果'}</span>${hits.length?`<button class="icon" data-a="hit" data-v="-1" aria-label="上一处" title="上一处">${icon('back',14)}</button><button class="icon" data-a="hit" data-v="1" aria-label="下一处" title="下一处（回车）">${icon('next',14)}</button>`:''}${missed?`<button class="isl-add" data-a="add-hits" title="把 ${missed} 处未遮住的结果全部遮住">遮住 ${missed}</button>`:''}`:'';
-  const island=`<div class="island" data-k="island" role="toolbar" aria-label="核对工具">${viewSeg('原文','脱敏后',['原文：核对真名和标注','脱敏后：AI 收到的内容'])}<span class="sep"></span><div class="isl-find ${q?'has':''}"><label>${icon('search',15)}<input id="search" type="search" aria-label="查找全部材料" placeholder="查找" value="${esc(state.search)}"></label>${find}</div><span class="sep"></span><button class="isl-btn ${state.inspector?'on':''}" data-a="inspector" title="实体与代号：按主体批量处理" aria-pressed="${state.inspector}">${icon('panel',16)}<span class="lbl">实体</span></button>${islandExtras()}${moreMenu([['mask-all','lock','全部遮住待确认',!maskable(state)],['export','share','导出原格式',!canExport(state)],['add-more','plus','添加材料'],['pause','pause','稍后继续']])}${reviewGo()}</div>`;
+  const island=`<div class="island" data-k="island" role="toolbar" aria-label="核对工具">${viewSeg('原文','脱敏后',['原文：核对真名和标注','脱敏后：AI 收到的内容'])}<span class="sep"></span><div class="isl-find ${q?'has':''}"><label>${icon('search',15)}<input id="search" type="search" aria-label="查找全部材料" placeholder="查找" value="${esc(state.search)}"></label>${find}</div><span class="sep"></span>${ai?'':`<button class="isl-btn ${state.toolsOpen?'on':''}" data-a="${state.toolsOpen?'tools-close':'tools-open'}" title="标注工具：涂黑笔、橡皮、框选" aria-pressed="${state.toolsOpen}">${icon('marker',16)}<span class="lbl">标注</span></button>`}<button class="isl-btn ${state.inspector?'on':''}" data-a="inspector" title="实体与代号：按主体批量处理" aria-pressed="${state.inspector}">${icon('panel',16)}<span class="lbl">实体</span></button>${islandExtras()}${moreMenu([['mask-all','lock','全部遮住待确认',!maskable(state)],['export','share','导出原格式',!canExport(state)],['add-more','plus','添加材料'],['pause','pause','稍后继续']])}${reviewGo()}</div>`;
   return bar({title:ai?`材料 ${d.no??state.current+1}`:d.name,island})
     +board()+`<main class="canvas" id="canvas" data-k="p-review">${paper(d,hits)}</main>`+rail(hits)+inspector()+toolsBar();
 }
@@ -1150,6 +1201,17 @@ function placeCallout(){
   const mark=page.querySelector('.m.on'),v=state.sel;
   const A=mark?(r=>({left:r.left-P.left,top:r.top-P.top,width:r.width,height:r.height}))(mark.getBoundingClientRect()):v?.rect;
   if(!A)return;
+  // 宽屏把卡片停在文档右侧空白处，不盖正文；放不下时回到词的上方或下方。
+  const gap=24,room=innerWidth-P.right-gap-16-(state.inspector?352:0);
+  co.style.maxWidth='';
+  if(room>=280&&innerWidth>760){
+    co.style.maxWidth=Math.min(372,room)+'px';
+    // 连线走在该词下方的行距里，不压字，从词一直连到卡片。
+    const y=A.top+A.height+4,top=Math.max(0,y-24);
+    co.style.left=P.width+gap+'px';co.style.top=top+'px';co.dataset.side='side';
+    co.style.setProperty('--ly',(y-top)+'px');co.style.setProperty('--lead',(P.width+gap-A.left-3)+'px');
+    return;
+  }
   const w=co.offsetWidth,h=co.offsetHeight,cx=A.left+A.width/2,left=Math.max(8,Math.min(P.width-w-8,cx-w/2));
   const above=A.top+P.top-box.top-56>h+18;
   co.style.left=left+'px';co.style.top=(above?A.top-h-16:A.top+A.height+16)+'px';
