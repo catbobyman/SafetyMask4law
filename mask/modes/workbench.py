@@ -15,15 +15,20 @@ import time
 import webbrowser
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
 from .. import store
 from ..documents import decode_text, result_text
-from ..official import ROOT, Recognizer, normalize_mapping_dict
+from ..official import Recognizer, normalize_mapping_dict
 from ..project import Project, initial_scope, save_initial_scope
 from . import gateway, install
+
+
+# The page is static files read on each request, so an edit shows up on reload.
+WEB = Path(__file__).resolve().parents[1] / 'web'
+ASSETS = {'app.css': 'text/css', 'live.css': 'text/css', 'app.js': 'text/javascript', 'live.js': 'text/javascript'}
 
 
 class Review(BaseModel):
@@ -149,13 +154,13 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
 
     @app.get('/')
     def index():
-        html = (ROOT / 'prototype/mask.html').read_text(encoding='utf-8')
-        html = html.replace('<head>', '<head><script>window.MASK_LIVE=true;</script>')
-        return HTMLResponse(html.replace('</body>', '<script src="/live.js"></script></body>'))
+        return FileResponse(WEB / 'index.html', media_type='text/html')
 
-    @app.get('/live.js')
-    def script():
-        return FileResponse(ROOT / 'prototype/live.js', media_type='text/javascript')
+    @app.get('/{name}')
+    def asset(name: str):
+        if name not in ASSETS:
+            return JSONResponse({'error': '不存在'}, status_code=404)
+        return FileResponse(WEB / name, media_type=ASSETS[name])
 
     @app.get('/api/project')
     def state():

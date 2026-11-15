@@ -1,0 +1,45 @@
+/* 只属于模拟：宿主对话和左下角的“原型”面板。共用样式在 ../mask/web/app.css。 */
+body[data-view=bench] #chat{transform:scale(.94);border-radius:18px;opacity:.5}
+
+/* 宿主对话（模拟） */
+.chat{position:absolute;inset:0;display:flex;flex-direction:column}
+.chat.is-empty{justify-content:center}
+.chat.is-empty .thread{display:none}
+.chat-host{position:absolute;top:14px;left:0;right:0;color:var(--ink3);font-size:13px;text-align:center}
+.thread{flex:1;overflow-y:auto;padding:52px 24px 12px;scrollbar-width:thin;scrollbar-color:var(--fill2) transparent;-webkit-mask-image:linear-gradient(transparent 28px,#000 52px);mask-image:linear-gradient(transparent 28px,#000 52px)}
+.thread-in{display:flex;flex-direction:column;gap:18px;max-width:680px;margin:0 auto}
+.bubble{align-self:flex-end;max-width:82%;padding:10px 16px;border-radius:20px;background:var(--fill2);font-size:15px;line-height:1.7}
+.hook{align-self:flex-end;display:flex;gap:8px;max-width:82%;padding:10px 14px;border-radius:18px;background:var(--wash);box-shadow:inset 0 0 0 1.5px var(--zhu);color:var(--zhu);font-size:14px;white-space:pre-wrap}
+.hook svg{margin-top:3px}
+.tool{display:flex;align-items:center;gap:7px;color:var(--ink3);font-size:13px}
+.reply{font:16px/1.9 var(--doc);white-space:pre-wrap}
+.reply a{color:inherit;text-underline-offset:3px;cursor:pointer}
+.report{white-space:normal}
+.report h2{margin-bottom:8px;font-size:20px;font-weight:600}
+.report table{width:100%;margin:8px 0 14px;border-collapse:collapse;font:13px/1.6 var(--ui)}
+.report th{padding:6px 10px 6px 0;border-bottom:1px solid var(--ink3);color:var(--ink2);font-weight:500;text-align:left}
+.report td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.composer-box{flex:none;padding:6px 24px 18px}
+.composer{display:flex;align-items:flex-end;gap:8px;max-width:680px;margin:0 auto;padding:11px 11px 11px 18px;border-radius:24px;background:var(--sheet);box-shadow:0 0 0 .5px var(--line),var(--shadow-1)}
+.composer textarea{flex:1;min-width:0;max-height:168px;padding:5px 0;border:0;outline:0;background:none;font-size:15px;line-height:1.6;resize:none;field-sizing:content}
+.send{display:grid;flex:none;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--pill);color:var(--pill-fg);transition:opacity .2s,transform .2s var(--spring)}
+.send:active:not(:disabled){transform:scale(.92)}
+.send:disabled{opacity:.25}
+.aid{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;max-width:680px;min-height:28px;margin:10px auto 0}
+.aid button{padding:3px 10px;border:1px dashed var(--ink3);border-radius:13px;color:var(--ink2);font-size:12px}
+
+/* 原型控件，真实产品没有 */
+#proto{position:fixed;z-index:60;left:12px;bottom:12px;font-size:12px}
+.proto-btn{padding:4px 10px;border:1px dashed var(--ink3);border-radius:13px;background:var(--bg);color:var(--ink2)}
+.proto-panel{position:absolute;left:0;bottom:calc(100% + 8px);display:flex;flex-direction:column;gap:10px;width:216px;padding:12px;border:1px dashed var(--ink3);border-radius:16px;background:var(--elev);box-shadow:var(--shadow-2)}
+.proto-group{display:flex;flex-wrap:wrap;gap:4px}
+.proto-group button{padding:4px 9px;border-radius:9px;background:var(--fill);color:var(--ink2)}
+.proto-group button.on{background:var(--pill);color:var(--pill-fg)}
+.proto-panel p{color:var(--ink2);line-height:1.6}
+@media (max-width:760px){
+  .composer-box{padding:6px 12px 14px}
+  .thread{padding:44px 14px 10px}
+  #proto{bottom:auto;top:12px;left:auto;right:12px}
+  body[data-view=bench] #proto{display:none}
+  .proto-panel{top:calc(100% + 8px);right:0;bottom:auto;left:auto}
+}
