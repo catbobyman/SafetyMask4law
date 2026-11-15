@@ -4,7 +4,7 @@ python -m mask [workbench]            local workbench in the browser
 python -m mask skill start|status     commands run by a host skill
 python -m mask guard hook             refuse a host prompt or tool call that would expose originals
 python -m mask gateway [start]        rewrite the model requests of connected agents; start: in the background
-python -m mask install|uninstall dsh  put the skill, the guard and the gateway address into DeepSeek Harness
+python -m mask install|uninstall dsh|codex  put the skill, the guard (dsh) and the gateway address into a host
 """
 from __future__ import annotations
 
@@ -39,12 +39,13 @@ def main():
         'command', nargs='?', choices=['start'], help='start：在后台启动，已在运行则不动')
 
     for command in ('install', 'uninstall'):
-        modes.add_parser(command, help='把技能、拦截和网关地址装入宿主 / 从宿主移除').add_argument('host', choices=['dsh'], help='dsh：DeepSeek Harness')
+        modes.add_parser(command, help='把技能、拦截和网关地址装入宿主 / 从宿主移除').add_argument(
+            'host', choices=['dsh', 'codex'], help='dsh：DeepSeek Harness；codex：Codex（技能和网关地址）')
 
     args = parser.parse_args()
     if args.mode in ('install', 'uninstall'):
         from .modes import install as mode
-        getattr(mode, args.mode)()
+        getattr(mode, args.mode)(args.host)
     elif args.mode == 'skill':
         from .modes import skill as mode
         mode.start(args.workspace) if args.command == 'start' else mode.status(args.workspace, args.wait)

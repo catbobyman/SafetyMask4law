@@ -73,28 +73,30 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
 
     def hosts():
         # Agents the skill and the guard can be switched on for. Machine-wide, not per project.
-        return [{'id': 'dsh', 'enabled': install.installed()}]
+        return [{'id': host, 'enabled': install.installed(host)} for host in install.HOSTS]
 
     def public():
         return {**project.public(), 'host': host, 'default_scope': initial_scope(), 'hosts': hosts()}
 
     def panel():
-        """The Agent panel: machine-wide state read live from the gateway, dsh's patch file and today's records."""
+        """The Agent panel: machine-wide state read live from the gateway, each host's config file and today's records."""
         try:
             last, problem = gateway.health(), None
         except SystemExit as exc:
             last, problem = None, str(exc)
-        enabled, today = install.installed(), gateway.records(time.strftime('%Y-%m-%d'))
-        patch = install.dsh_home() / 'cordis.patch.yml'
-        # `pending`: Mask's block changed, but dsh has not sent a request since, so it may still run on its old
-        # settings. Today's records also count, so a gateway restart does not forget dsh's last request.
-        heard = max([(last or {}).get('dsh', ''), *(r['t'] for r in today if r.get('agent') == 'dsh')])
-        state = 'off' if not enabled else 'down' if last is None else 'live' if heard >= install.written() else 'pending'
+        today = gateway.records(time.strftime('%Y-%m-%d'))
+        def agent(host):
+            enabled = install.installed(host)
+            # `pending`: Mask's part changed, but the host has not sent a request since, so it may still run on its
+            # old settings. Today's records also count, so a gateway restart does not forget its last request.
+            heard = max([(last or {}).get(host, ''), *(r['t'] for r in today if r.get('agent') == host)])
+            state = 'off' if not enabled else 'down' if last is None else 'live' if heard >= install.written(host) else 'pending'
+            return {'id': host, 'state': state, 'blocked': None if enabled else install.blocked(host),
+                    'file': str(install.config(host)), 'upstream': gateway.AGENTS[host]}
         return {'gateway': {'running': last is not None, 'problem': problem, 'requests': len(today),
                             'replaced': sum(sum(r.get('tags', {}).values()) for r in today),
                             'refused': sum('refused' in r for r in today)},
-                'agents': [{'id': 'dsh', 'state': state, 'blocked': None if enabled else install.blocked(),
-                            'file': str(patch), 'upstream': gateway.AGENTS['dsh']}]}
+                'agents': [agent(host) for host in install.HOSTS]}
 
     @app.middleware('http')
     async def local_only(request: Request, call_next):
@@ -198,10 +200,10 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
         save_initial_scope(body.categories)
         return {'default_scope': initial_scope()}
 
-    @app.put('/api/hosts/dsh')
-    def switch_host(body: Switch):
+    @app.put('/api/hosts/{host}')
+    def switch_host(host: str, body: Switch):
         try:
-            install.install() if body.enabled else install.uninstall()
+            install.install(host) if body.enabled else install.uninstall(host)
         except SystemExit as exc:
             raise ValueError(str(exc)) from exc
         return {'hosts': hosts()}
@@ -210,10 +212,10 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
     def host_panel():
         return panel()
 
-    @app.get('/api/hosts/dsh/preview')
-    def host_preview(enabled: bool):
+    @app.get('/api/hosts/{host}/preview')
+    def host_preview(host: str, enabled: bool):
         try:
-            return install.preview(enabled)
+            return install.preview(host, enabled)
         except SystemExit as exc:
             raise ValueError(str(exc)) from exc
 

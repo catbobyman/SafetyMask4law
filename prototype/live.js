@@ -184,6 +184,10 @@ function scopeLine(){
 }
 // 接入 Agent：一份面板两页（Agent / 记录）。只读写全机状态，对本机所有案件生效，不依赖当前打开的案件。
 const AGENTS=[['dsh','DeepSeek Harness','D'],['codex','Codex','C'],['claude-code','Claude Code','C']];
+// 每个 Agent 的说明：part 是 Mask 在它的配置文件里写的东西；scope 是哪些请求经过 Mask；adds 是接入加了什么、哪些不动；removes 是断开时一并移除的。
+const AGENT_NOTES={
+  dsh:{part:'一块',scope:'同时装入 /mask 技能和拦截插件。只有 DeepSeek 官方路由（API Key）的模型经过 Mask，在它里面选了其他提供方的模型时不经过。',adds:'只加 Mask 自己的这一块：拦截插件，以及 DeepSeek 官方路由的地址。<b>API Key 和其他设置不动。</b>断开时就是删掉这一块。',removes:'/mask 技能一并移除'},
+  codex:{part:'一行',scope:'同时装入 $mask 技能。用 ChatGPT 账号登录、走内置 OpenAI 通道的请求经过 Mask；把 model_provider 换成别的提供方后不经过。Codex 不会自己启动网关，重启电脑后要先在这里点“启动”。',adds:'只加 Mask 自己的这一行：内置 OpenAI 通道的地址。<b>登录凭据和其他设置不动。</b>断开时就是删掉这一行。',removes:'$mask 技能一并移除'}};
 // gw：GET /api/hosts 的结果。gwView：''、'off'（断开确认）、'diff'（看改动）。gwUndo：刚接入、还能撤销的 Agent。
 let gw=null,gwTab='agents',gwOpen='',gwView='',gwDiff=null,gwLog=null,gwLogBy='req',gwOpenLog=-1,gwUndo='',gwBusy='',gwPoll=0,gwUndoTimer=0;
 const hostOn=id=>!!liveHosts.find(h=>h.id===id)?.enabled;
@@ -213,10 +217,10 @@ function agentRow([id,name,glyph]){
     off:['','未接入 · 直连 '+host],pending:['wait',`已接入 · 重启 ${name} 后生效`],live:['on','已接入 · 生效中'],down:['todo','已接入 · 网关没有运行，请求发不出去']}[a.state];
   const right=a.blocked?'':`<button class="switch ${on?'on':''}" role="switch" aria-checked="${on}" aria-label="${esc(name)}" data-a="host-toggle" data-v="${id}" ${liveBusy?'disabled':''}><i></i></button>`;
   const route=`<div class="kv"><span>请求去向</span><code>${esc(name)} → Mask → ${esc(host)}</code></div>`;
-  const scope='<div>同时装入 /mask 技能和拦截插件。只有 DeepSeek 官方路由（API Key）的模型经过 Mask，在它里面选了其他提供方的模型时不经过。</div>';
+  const note=AGENT_NOTES[id],scope=`<div>${esc(note.scope)}</div>`;
   const detail=!open?'':a.blocked?`<div class="ag-detail"><div>${esc(a.blocked)}</div></div>`
-    :!on?`<div class="ag-detail"><div class="kv"><span>会改</span><code>${esc(a.file)}（加 Mask 的一块）</code></div>${route}${scope}<div class="links"><button class="lk" data-a="gw-diff" data-v="${id}">看将要改的内容</button></div></div>`
-    :`<div class="ag-detail"><div class="kv"><span>改动位置</span><code>${esc(a.file)}（Mask 的一块）</code></div>${route}${a.state==='pending'?`<div>已打开的 ${esc(name)} 还在用旧设置。重启后第一条请求到达，这里会变成“生效中”。</div>`:''}${scope}<div class="links"><button class="lk" data-a="gw-diff" data-v="${id}">看改了什么</button><button class="lk" data-a="gw-tab" data-v="log">看它的记录</button><button class="lk red" data-a="gw-ask-off" data-v="${id}">断开并还原</button></div></div>`;
+    :!on?`<div class="ag-detail"><div class="kv"><span>会改</span><code>${esc(a.file)}（加 Mask 的${note.part}）</code></div>${route}${scope}<div class="links"><button class="lk" data-a="gw-diff" data-v="${id}">看将要改的内容</button></div></div>`
+    :`<div class="ag-detail"><div class="kv"><span>改动位置</span><code>${esc(a.file)}（Mask 的${note.part}）</code></div>${route}${a.state==='pending'?`<div>已打开的 ${esc(name)} 还在用旧设置。重启后第一条请求到达，这里会变成“生效中”。</div>`:''}${scope}<div class="links"><button class="lk" data-a="gw-diff" data-v="${id}">看改了什么</button><button class="lk" data-a="gw-tab" data-v="log">看它的记录</button><button class="lk red" data-a="gw-ask-off" data-v="${id}">断开并还原</button></div></div>`;
   return `<div class="ag"><div class="ag-ic">${glyph}</div><div class="ag-main"><b>${esc(name)}</b><div class="ag-st ${dot==='todo'?'todo':''}">${dot?`<i class="gdot ${dot}"></i>`:''}${esc(text)}</div></div><button class="ag-more ${open?'open':''}" data-a="gw-open" data-v="${id}" aria-expanded="${open}">${a.blocked?'原因':'详情'}${icon('next',13)}</button>${right}</div>${detail}`;
 }
 function gwAgents(){
@@ -246,9 +250,9 @@ function gwDiffBox(){
   return `<div class="diff"><div class="diff-h">${esc(gwDiff.file)}</div>${gwDiff.lines.length?gwDiff.lines.map(([k,t])=>`<div class="dl ${k==='+'?'add':k==='-'?'del':'ctx'}" title="${esc(t)}">${esc(k+' '+t)}</div>`).join(''):'<div class="dl ctx">没有要改的内容</div>'}</div>`;
 }
 function gwConfirm(){
-  const name=agentName(gwDiff.id),back=`<button class="bk" data-a="gw-back" aria-label="返回">${icon('back',15)}</button>`;
-  if(gwView==='off')return back+`<h2>断开 ${esc(name)} 和 Mask？</h2><p class="say">${esc(name)} 将恢复接入前的设置。要删掉的只有 Mask 自己写的这一块，别的不动；/mask 技能一并移除。</p>${gwDiffBox()}<div class="warn">${icon('info',16)}<span>断开后，它发给模型的内容不再经过 Mask，真名会原样发出。重启 ${esc(name)} 后生效。</span></div><div class="btns"><button class="cta soft" data-a="gw-back">取消</button><button class="cta hot" data-a="gw-off" ${liveBusy?'disabled':''}>断开并还原</button></div>`;
-  return back+`<h2>${hostOn(gwDiff.id)?'接入时改了什么':'接入会改什么'}</h2><p class="say">只加 Mask 自己的这一块：拦截插件，以及 DeepSeek 官方路由的地址。<b>API Key 和其他设置不动。</b>断开时就是删掉这一块。</p>${gwDiffBox()}<div class="btns"><button class="cta soft" data-a="gw-back">知道了</button></div>`;
+  const name=agentName(gwDiff.id),note=AGENT_NOTES[gwDiff.id],back=`<button class="bk" data-a="gw-back" aria-label="返回">${icon('back',15)}</button>`;
+  if(gwView==='off')return back+`<h2>断开 ${esc(name)} 和 Mask？</h2><p class="say">${esc(name)} 将恢复接入前的设置。要删掉的只有 Mask 自己写的这${note.part}，别的不动；${note.removes}。</p>${gwDiffBox()}<div class="warn">${icon('info',16)}<span>断开后，它发给模型的内容不再经过 Mask，真名会原样发出。重启 ${esc(name)} 后生效。</span></div><div class="btns"><button class="cta soft" data-a="gw-back">取消</button><button class="cta hot" data-a="gw-off" ${liveBusy?'disabled':''}>断开并还原</button></div>`;
+  return back+`<h2>${hostOn(gwDiff.id)?'接入时改了什么':'接入会改什么'}</h2><p class="say">${note.adds}</p>${gwDiffBox()}<div class="btns"><button class="cta soft" data-a="gw-back">知道了</button></div>`;
 }
 SHEETS.hosts=function(){
   const head=`<div class="scrim" data-a="close-sheet"></div><section class="modal gwp" role="dialog" aria-modal="true" aria-label="接入 Agent"><button class="x" data-a="close-sheet" aria-label="关闭">${icon('x',15)}</button>`;

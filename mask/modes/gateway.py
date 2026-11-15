@@ -10,11 +10,13 @@ conversation. The gateway does not run the recognition model: nobody reviews its
 """
 from __future__ import annotations
 
+from fnmatch import fnmatch
 import json
+import os
 import time
 import traceback
 from urllib.parse import urlsplit
-from urllib.request import getproxies, proxy_bypass
+from urllib.request import getproxies, getproxies_environment, proxy_bypass
 
 from .. import payload, store
 from ..project import app_dir, data_dir, find
@@ -25,7 +27,8 @@ from .guard import checker
 PORT = 8788
 URL = f'http://127.0.0.1:{PORT}'
 # Path prefix of each agent -> the model service it talks to when it is not connected.
-AGENTS = {'dsh': 'https://api.deepseek.com/anthropic'}
+# Codex signed in with a ChatGPT account talks to chatgpt.com; with an API key it would be api.openai.com/v1.
+AGENTS = {'dsh': 'https://api.deepseek.com/anthropic', 'codex': 'https://chatgpt.com/backend-api/codex'}
 KEEP_DAYS = 30
 
 
@@ -62,15 +65,34 @@ class Vaults:
         return label, *self.cache[label][1:]
 
 
-def prepare(vaults: Vaults, raw: bytes):
+def bypassed(host):
+    """Whether the user's proxy settings exclude `host`. For the Windows settings urllib's own check also looks
+    the host up in reverse DNS, which took 16 seconds per upstream here and kept the gateway from starting in
+    time; an upstream is a public name, so the exclusion list is matched against the name only."""
+    if os.name != 'nt' or getproxies_environment():
+        return proxy_bypass(host)
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Internet Settings') as key:
+        try:
+            excluded = str(winreg.QueryValueEx(key, 'ProxyOverride')[0])
+        except FileNotFoundError:
+            return False
+    return any('.' not in host if pattern == '<local>' else fnmatch(host, pattern) for pattern in excluded.split(';') if pattern)
+
+
+def prepare(vaults: Vaults, agent: str, raw: bytes, zstd: bool):
     """The request body to forward and what to record about it; raises Refused."""
+    if zstd:
+        # Codex compresses its requests; the frame does not state its size, hence the streaming reader.
+        import zstandard
+        raw = zstandard.ZstdDecompressor().decompressobj().decompress(raw)
     try:
         body = json.loads(raw)
     except ValueError:
         body = None
     if not isinstance(body, dict):
         raise Refused('not-json', '请求不是 JSON，无法检查其中是否含未脱敏内容')
-    cwd = payload.working_directory(body)
+    cwd = payload.working_directory(body, agent)
     label, forms, replace = vaults.of(cwd)
     named = next((tag for original, tag in forms.items() if cwd and original in str(cwd)), None)
     if named:
@@ -106,9 +128,11 @@ def create_app(transport=None):
         # The user's proxy settings are read here: httpx's own reading fails on the IPv6 entry of the NO_PROXY
         # that dsh hands the gateway when it starts it.
         target = urlsplit(upstream)
-        return None if transport or proxy_bypass(target.hostname) else getproxies().get(target.scheme)
+        return None if transport or bypassed(target.hostname) else getproxies().get(target.scheme)
+    # The reply is passed on as it arrives, so it may only be compressed in a way the agent itself asked for;
+    # httpx would otherwise ask for its own (Codex could not read its model list).
     clients = {agent: httpx.AsyncClient(base_url=upstream, timeout=httpx.Timeout(None, connect=15), transport=transport,
-                                        trust_env=False, proxy=proxy(upstream))
+                                        trust_env=False, proxy=proxy(upstream), headers={'Accept-Encoding': 'identity'})
                for agent, upstream in AGENTS.items()}
 
     def refuse(message, status):
@@ -124,17 +148,23 @@ def create_app(transport=None):
         agent, started = request.path_params['agent'], time.monotonic()
         if agent not in clients:
             return refuse(f'网关不认识 /{agent}', 404)
+        if request.headers.get('upgrade', '').lower() == 'websocket':
+            # Codex tries a WebSocket first and falls back to plain requests at once on this answer.
+            return refuse('网关不支持 WebSocket', 426)
         record = {'t': time.strftime('%Y-%m-%dT%H:%M:%S'), 'agent': agent}
         last[agent] = record['t']
+        body = await request.body()
         # Checking and logging run off the event loop, so the replies streaming meanwhile are not held up.
         async def done(status, **more):
-            await run_in_threadpool(log, {**record, **more, 'status': status})
-        try:
-            if request.headers.get('content-encoding'):
-                raise Refused('encoding', f'请求体经 {request.headers["content-encoding"]} 压缩，无法检查', 415)
-            body = await request.body()
+            # A request without a body carries nothing of the user's (Codex fetches its model list every start).
             if body:
-                body, found = await run_in_threadpool(prepare, vaults, body)
+                await run_in_threadpool(log, {**record, **more, 'status': status})
+        try:
+            encoding = request.headers.get('content-encoding')
+            if encoding not in (None, 'zstd'):
+                raise Refused('encoding', f'请求体经 {encoding} 压缩，无法检查', 415)
+            if body:
+                body, found = await run_in_threadpool(prepare, vaults, agent, body, bool(encoding))
                 record.update(found)
         except Refused as refused:
             await done(refused.status, refused=refused.kind, **refused.record)
@@ -146,7 +176,8 @@ def create_app(transport=None):
             return refuse(f'检查请求时出错，未发送（{type(exc).__name__}）。详见 {app_dir() / "gateway" / "gateway.log"}', 503)
         # The time the gateway itself added, not the model's.
         record['ms'] = round((time.monotonic() - started) * 1000)
-        headers = [(k, v) for k, v in request.headers.items() if k.lower() not in {'host', 'content-length'}]
+        # The body goes out uncompressed, whatever it came in as.
+        headers = [(k, v) for k, v in request.headers.items() if k.lower() not in {'host', 'content-length', 'content-encoding'}]
         outgoing = clients[agent].build_request(request.method, '/' + request.path_params['path'], params=request.url.query,
                                                 headers=headers, content=body)
         try:
@@ -176,7 +207,8 @@ def run():
         if file.stem < old:
             file.unlink()
     print(f'Mask 网关: {URL}', flush=True)
-    uvicorn.run(create_app(), host='127.0.0.1', port=PORT, log_level='warning', access_log=False)
+    # Without a WebSocket implementation an upgrade request reaches `forward` as a plain one, which answers it.
+    uvicorn.run(create_app(), host='127.0.0.1', port=PORT, log_level='warning', access_log=False, ws='none')
 
 
 def health():

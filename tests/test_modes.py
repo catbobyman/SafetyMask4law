@@ -96,15 +96,15 @@ def test_dsh_install_touches_only_its_own_block(tmp_path, monkeypatch):
         own.parent.mkdir(parents=True, exist_ok=True)
         own.write_text('- id: llm-deepseek\n  config: {reasoningEffort: max}\n', encoding='utf-8')
         with pytest.raises(SystemExit):
-            install.install()
+            install.install('dsh')
         assert 'mask' not in own.read_text(encoding='utf-8') and not started and not (tmp_path / 'skills').exists()
         own.unlink()
     for mine, emptied in [('# mine\n- id: ui-theme\n  config: {preference: dark}\n', None), ('# shipped\n[]\n', '# shipped\n[]\n'), (None, None)]:
         patch.write_text(mine, encoding='utf-8') if mine else patch.unlink(missing_ok=True)
-        install.install(); install.install()
+        install.install('dsh'); install.install('dsh')
         text = patch.read_text(encoding='utf-8')
         assert text.count('mask-guard') == 1 and text.count('baseURL: "http://127.0.0.1:8788/dsh"') == 1 and started and '[]' not in text and '<MASK>' not in (tmp_path / 'skills/mask/SKILL.md').read_text(encoding='utf-8')
-        install.uninstall()
+        install.uninstall('dsh')
         assert not (tmp_path / 'skills/mask').exists()
         # A patch file without rows stops dsh from booting, so the empty layer comes back.
         assert (patch.read_text(encoding='utf-8') if patch.exists() else None) == (emptied or mine)
@@ -112,8 +112,8 @@ def test_dsh_install_touches_only_its_own_block(tmp_path, monkeypatch):
     with TestClient(create_app(Project(tmp_path / 'ws', tmp_path / 'data'), 'launch'), base_url='http://127.0.0.1') as client:
         client.post('/session', headers={'X-Launch-Token': 'launch'})
         switch = lambda on: client.put('/api/hosts/dsh', headers={'X-Mask': '1'}, json={'enabled': on}).json()
-        assert switch(True) == {'hosts': [{'id': 'dsh', 'enabled': True}]} and installed_block(patch)
-        assert client.get('/api/project').json()['hosts'] == [{'id': 'dsh', 'enabled': True}]
+        assert switch(True)['hosts'][0] == {'id': 'dsh', 'enabled': True} and installed_block(patch)
+        assert client.get('/api/project').json()['hosts'][0] == {'id': 'dsh', 'enabled': True}
         # The panel reads its state live: the patch file, whether the gateway listens, whether dsh has sent a request.
         heard = {}
         monkeypatch.setattr(gateway, 'health', lambda: heard.get('agents'))
@@ -133,7 +133,7 @@ def test_dsh_install_touches_only_its_own_block(tmp_path, monkeypatch):
         assert removed['file'] == str(patch) and {kind for kind, _ in removed['lines']} == {'-'}
         added = client.get('/api/hosts/dsh/preview', params={'enabled': True}).json()['lines']
         assert [text for kind, text in added if kind == '+'] == [text for _, text in removed['lines']]
-        assert switch(False) == {'hosts': [{'id': 'dsh', 'enabled': False}]} and not patch.exists()
+        assert switch(False)['hosts'][0] == {'id': 'dsh', 'enabled': False} and not patch.exists()
         assert panel()['agents'][0]['state'] == 'off' and panel()['agents'][0]['blocked'] is None
 
 
@@ -238,3 +238,81 @@ def test_gateway_rewrites_text_and_keeps_protocol(tmp_path, monkeypatch):
     assert [r['status'] for r in records] == [200, 200, 200, 400, 400, 400] and records[0]['tags'][NAME] == 7
     assert records[0]['project'] == project.directory.name and records[2]['project'] == '*' and records[3]['strict'] == ['身份证']
     assert '张三' not in json.dumps(records, ensure_ascii=False) and str(tmp_path) not in json.dumps(records)
+
+
+def test_gateway_reads_codex_requests(tmp_path, monkeypatch):
+    import zstandard
+    project = masked_project(tmp_path, monkeypatch)
+    seen = []
+    async def upstream(request):
+        seen.append((dict(request.headers), await request.json() if request.method == 'POST' else None))
+        return JSONResponse({'ok': True})
+    # Codex states its folder in an <environment_context> message, and lists its tools in an input item.
+    message = lambda role, text: {'type': 'message', 'role': role, 'content': [{'type': 'input_text', 'text': text}]}
+    tools = {'type': 'additional_tools', 'role': 'developer', 'tools': [{'type': 'namespace', 'name': '张三', 'description': '', 'tools': [
+        {'type': 'function', 'name': '张三', 'description': '查张三', 'parameters': {'properties': {'q': {'enum': ['张三']}}}}]}]}
+    sealed = {'type': 'reasoning', 'summary': [{'type': 'summary_text', 'text': '张三'}], 'encrypted_content': 'Z0FBQUFB'}
+    body = {'model': 'gpt-6.1-sol', 'prompt_cache_key': '张三', 'client_metadata': {'turn': '张三'}, 'input': [
+        tools, message('developer', '用户是张三的代理人'),
+        message('user', f'<environment_context>\n  <cwd>{project.workspace}</cwd>\n  <shell>powershell</shell>\n</environment_context>'),
+        message('user', '张三起诉星河示例科技有限公司'), sealed,
+        {'type': 'function_call', 'name': '张三', 'call_id': 'call_张三', 'arguments': json.dumps({'query': '张三'})},
+        {'type': 'function_call_output', 'call_id': 'call_张三', 'output': '张三'},
+        # A UTF-8 file read by Windows PowerShell without -Encoding comes out in the Windows code page.
+        {'type': 'function_call_output', 'call_id': 'call_2', 'output': '来电：张三称'.encode().decode('mbcs', 'replace')}]}
+    routes = [Route('/backend-api/codex/responses', upstream, methods=['GET', 'POST']), Route('/backend-api/codex/models', upstream)]
+    with TestClient(gateway.create_app(httpx.ASGITransport(app=Starlette(routes=routes)))) as client:
+        # Codex compresses its request body.
+        packed = zstandard.ZstdCompressor().compress(json.dumps(body, ensure_ascii=False).encode())
+        assert client.post('/codex/responses', content=packed, headers={'Content-Encoding': 'zstd', 'Content-Type': 'application/json'}).json() == {'ok': True}
+        headers, sent = seen[0]
+        assert 'content-encoding' not in headers
+        items = sent['input']
+        assert items[1]['content'][0]['text'] == f'用户是{NAME}的代理人' and items[3]['content'][0]['text'] == NAME + '起诉' + COMPANY
+        assert json.loads(items[5]['arguments']) == {'query': NAME} and items[6]['output'] == NAME and NAME in items[7]['output']
+        # Tool definitions, ids, the cache key, client metadata and encrypted reasoning go out as written.
+        assert items[0]['tools'][0]['tools'][0] == {**tools['tools'][0]['tools'][0], 'description': f'查{NAME}'}
+        assert items[4] == sealed and items[5]['name'] == '张三' and items[5]['call_id'] == items[6]['call_id'] == 'call_张三'
+        assert sent['prompt_cache_key'] == '张三' and sent['client_metadata'] == {'turn': '张三'}
+        # Codex tries a WebSocket first; this answer makes it fall back to plain requests at once.
+        assert client.get('/codex/responses', headers={'Connection': 'Upgrade', 'Upgrade': 'websocket'}).status_code == 426
+        # Codex names no encoding for its model list; the reply must not come compressed in one httpx would ask for.
+        del client.headers['accept-encoding']
+        assert client.get('/codex/models').json() == {'ok': True} and seen[1][0]['accept-encoding'] == 'identity' and len(seen) == 2
+    # The project was found from <cwd>; requests without a body are not recorded.
+    records = [json.loads(line) for file in (app_dir() / 'gateway').glob('*.jsonl') for line in file.read_text(encoding='utf-8').splitlines()]
+    assert [(r['agent'], r['project'], r['tags'][NAME]) for r in records] == [('codex', project.directory.name, 6)]
+
+
+def test_codex_install_touches_only_its_own_line(tmp_path, monkeypatch):
+    import tomllib
+    from mask.modes import install
+    home = tmp_path / 'codex'
+    home.mkdir()
+    monkeypatch.setattr(install.gateway, 'start', lambda: None)
+    config, auth = home / 'config.toml', home / 'auth.json'
+    login = lambda mode: auth.write_text(json.dumps({'auth_mode': mode}), encoding='utf-8')
+    mine = b'# mine\nmodel = "gpt-6.1-sol"\n\n[features]\nmulti_agent = true\n'
+    # Another gateway's address, another provider, and an API-key login (a different upstream) are left alone.
+    for text, mode in [(b'openai_base_url = "http://127.0.0.1:3425/backend-api/codex"\n', 'chatgpt'),
+                       (b'model_provider = "magpie"\n', 'chatgpt'), (mine, 'apikey')]:
+        config.write_bytes(text), login(mode)
+        with pytest.raises(SystemExit):
+            install.install('codex')
+        assert config.read_bytes() == text and not (home / 'skills').exists()
+    login('chatgpt')
+    install.install('codex'); install.install('codex')
+    # A top-level key: it has to come before the first table.
+    assert tomllib.loads(config.read_text(encoding='utf-8')) == {
+        'openai_base_url': 'http://127.0.0.1:8788/codex', 'model': 'gpt-6.1-sol', 'features': {'multi_agent': True}}
+    assert config.read_bytes().count(b'openai_base_url') == 1 and install.installed('codex')
+    assert '<MASK>' not in (home / 'skills/mask/SKILL.md').read_text(encoding='utf-8')
+    with TestClient(create_app(Project(tmp_path / 'ws', tmp_path / 'data'), 'launch'), base_url='http://127.0.0.1') as client:
+        client.post('/session', headers={'X-Launch-Token': 'launch'})
+        monkeypatch.setattr(gateway, 'health', lambda: {})
+        agent = client.get('/api/hosts').json()['agents'][1]
+        assert (agent['id'], agent['state'], agent['file']) == ('codex', 'pending', str(config))
+        removed = client.get('/api/hosts/codex/preview', params={'enabled': False}).json()['lines']
+        assert [kind for kind, _ in removed].count('-') == 1
+        assert client.put('/api/hosts/codex', headers={'X-Mask': '1'}, json={'enabled': False}).json()['hosts'][1] == {'id': 'codex', 'enabled': False}
+    assert config.read_bytes() == mine and not (home / 'skills/mask').exists()

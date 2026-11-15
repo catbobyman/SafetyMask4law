@@ -10,6 +10,7 @@ A tag has the official HaS shape <类型[编号].类型.名称>; further spellin
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 import uuid
@@ -63,6 +64,22 @@ def restore(text, mapping, fixes=None):
 def imported(mapping):
     """An official {tag: [values]} file as {tag: original}; like official seek, the first value restores."""
     return {tag: values[0] for tag, values in normalize_mapping_dict(mapping).items()}
+
+
+def garbled(original):
+    """How an original looks when its UTF-8 bytes are read in the Windows code page, as Windows PowerShell's
+    Get-Content does without -Encoding (Codex did so on a UTF-8 memo). The text can be turned back into the
+    original. In a double-byte code page the original's first byte may pair with the byte before it, so both
+    alignments count; the last character may pair with the byte after it and is left out. Windows' own decoder
+    is used: it maps undefined pairs differently from Python's gbk codec."""
+    if os.name != 'nt':
+        return []
+    data = original.encode('utf-8')
+    if data.isascii():
+        return []
+    forms = {data[start:].decode('mbcs', 'replace')[:-1] for start in (0, 1)}
+    # One or two odd characters are too common to stand for anything.
+    return sorted(form for form in forms if len(form) >= 2 and form != original)
 
 
 def replacer(forms):
@@ -143,12 +160,14 @@ class Vault:
         return {key: {**e, 'variants': self.variants(key)} for key, e in self.entities.items()}
 
     def forms(self, escaped=False):
-        """{original: tag}. escaped adds originals written with JSON \\uXXXX escapes, as in JSON nested inside a string."""
+        """{original: tag}. escaped adds the other ways an agent's request can carry an original: JSON \\uXXXX
+        escapes, as in JSON nested inside a string, and the original's UTF-8 read in the Windows code page."""
         forms = {}
         for tag, original in self.mapping.items():
-            forms.setdefault(original, tag)
-            if escaped:
-                forms.setdefault(json.dumps(original)[1:-1], tag)
+            for form in [original, *(garbled(original) if escaped else [])]:
+                forms.setdefault(form, tag)
+                if escaped:
+                    forms.setdefault(json.dumps(form)[1:-1], tag)
         return forms
 
     def redact(self, text, escaped=False):
