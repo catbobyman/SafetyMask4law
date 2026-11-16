@@ -3,6 +3,8 @@ let liveRevision=0,liveMapping={},liveFiles=[],liveBusy=false,liveError='',liveR
 let editVersion=0,savedVersion=0,saveTimer=null,savingPromise=null;
 // An imported mapping file replaces the project mapping for restore only; it is never merged into the project.
 let liveRestoreMapping=null;
+// Set when the page could not join the workbench at startup (no session, or the project failed to load).
+let liveUnopened='';
 // A Word AI result is restored into a Word file; it is kept until the text on the restore page is replaced.
 let liveResultWord=null;
 // Workbench opened by a host skill: exporting Markdown hands it to the workspace.
@@ -96,6 +98,8 @@ function tile(f,i){
   return fileRow({f,i,a:ready?'open-existing':'',doc:ready?doc:null,sub,hot:doc.status==='failed'||n>0,on:!ready,end:ready?`<span class="f-go">${n?'核对':''}${icon('next',14)}</span>`:''});
 }
 function selectPage(){
+  // Without the project nothing on this page can work, so the startup failure replaces it.
+  if(liveUnopened)return `<main class="center" data-k="p-unopened"><div class="brand"><i class="brand-mark"></i>Mask</div><h1 class="ask">工作台没能打开</h1><p class="quiet">${esc(liveUnopened)}</p></main>`;
   const n=state.dir.filter(f=>f.checked&&!f.docId).length+state.documents.filter(d=>d.status!=='review').length;
   const start=n?`<button class="cta hot" data-a="start-scan" ${liveBusy?'disabled':''}>开始识别 ${countNum(n)} 份${icon('right',18)}</button>`:'';
   const resume=state.documents.some(d=>d.status==='review')?`<button class="cta ${n?'soft':'hot'}" data-a="review-open">继续核对</button>`:'';
@@ -403,13 +407,15 @@ start({
 });
 (async()=>{
   try{
-    const launch=location.hash.slice(1);
-    if(launch){
-      const response=await fetch('/session',{method:'POST',headers:{'X-Launch-Token':launch}});
-      if(!response.ok)throw new Error((await response.json()).error);
-      history.replaceState(null,'','/');
-    }
-    hydrate(await api('project',undefined,'GET'));
+    try{
+      const launch=location.hash.slice(1);
+      if(launch){
+        const response=await fetch('/session',{method:'POST',headers:{'X-Launch-Token':launch}});
+        if(!response.ok)throw new Error((await response.json()).error);
+        history.replaceState(null,'','/');
+      }
+      hydrate(await api('project',undefined,'GET'));
+    }catch(error){liveUnopened=error.message;render();return;}
     const local=await api('workspace',undefined,'GET');
     gwRefresh().then(render,fail);
     state.dir.push(...local.filter(f=>!state.dir.some(x=>x.name===f.name)).map(f=>({key:crypto.randomUUID(),name:f.name,local:true,checked:f.supported,unsupported:!f.supported,format:f.name.split('.').pop().toUpperCase()})));

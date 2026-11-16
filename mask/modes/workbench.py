@@ -103,6 +103,10 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
                             'refused': sum('refused' in r for r in today)},
                 'agents': [agent(host) for host in install.HOSTS]}
 
+    def cookie_name(request):
+        # Cookies are not scoped by port: workbenches running side by side on 127.0.0.1 would overwrite one session.
+        return f'mask_session_{request.url.port}'
+
     @app.middleware('http')
     async def local_only(request: Request, call_next):
         if request.url.hostname != '127.0.0.1':
@@ -111,8 +115,8 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
         if origin and origin != str(request.base_url).rstrip('/'):
             return JSONResponse({'error': '拒绝跨站请求'}, status_code=403)
         if request.url.path.startswith('/api/'):
-            if not secrets.compare_digest(request.cookies.get('mask_session', ''), cookie):
-                return JSONResponse({'error': '会话已失效，请使用启动窗口中的链接重新打开'}, status_code=401)
+            if not secrets.compare_digest(request.cookies.get(cookie_name(request), ''), cookie):
+                return JSONResponse({'error': '这个页面没有连上工作台。启动链接只能打开一次，请重新启动 Mask 获取新链接'}, status_code=401)
             if request.method != 'GET' and request.headers.get('x-mask') != '1':
                 return JSONResponse({'error': '缺少工作台请求标记'}, status_code=403)
         response = await call_next(request)
@@ -135,10 +139,10 @@ def create_app(project: Project, launch_token: str, host: bool = False, control_
     def session(request: Request):
         token = request.headers.get('x-launch-token', '')
         if token not in launch_tokens:
-            return JSONResponse({'error': '启动链接已使用或无效'}, status_code=403)
+            return JSONResponse({'error': '启动链接已用过或无效，请重新启动 Mask 获取新链接'}, status_code=403)
         launch_tokens.discard(token)
         response = JSONResponse({'ok': True})
-        response.set_cookie('mask_session', cookie, httponly=True, samesite='strict')
+        response.set_cookie(cookie_name(request), cookie, httponly=True, samesite='strict')
         return response
 
     @app.post('/control/open')
