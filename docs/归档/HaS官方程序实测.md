@@ -1,6 +1,6 @@
 # HaS 官方程序实测
 
-日期：2026-11-01。样例和脚本在 [experiments/has-official](../experiments/has-official)。
+日期：2026-11-01。样例和脚本在 [experiments/has-official](../../experiments/has-official)。
 
 ## 结论
 

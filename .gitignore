@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 output/
 .oil-ui/
+.claude/
+HANDOFF.md
+.deepeval/

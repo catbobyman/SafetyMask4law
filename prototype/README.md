@@ -1,6 +1,6 @@
 # Mask 交互原型
 
-双击 `mask.html` 即可打开，无需安装依赖。这个目录只有模拟的部分：`sim.js` 是示例合同、模拟的宿主对话、场景和“原型”面板，`sim.css` 是它们的样式；界面本身用的是产品的 [mask/web/app.js](../mask/web/app.js) 和 [app.css](../mask/web/app.css)，所以要和 `mask/` 目录放在一起才能打开。用 HTTP 服务打开时从仓库根目录起服务，访问 `/prototype/mask.html`。`mask-workflow.html` 是上一版，保留作对照。
+双击 `mask.html` 即可打开，无需安装依赖。这个目录只有模拟的部分：`sim.js` 是示例合同、模拟的宿主对话、场景和“原型”面板，`sim.css` 是它们的样式；界面本身用的是产品的 [mask/web/app.js](../mask/web/app.js) 和 [app.css](../mask/web/app.css)，所以要和 `mask/` 目录放在一起才能打开。用 HTTP 服务打开时从仓库根目录起服务，访问 `/prototype/mask.html`。上一版 `mask-workflow.html` 已移到 [docs/归档](../docs/归档/mask-workflow.html)。
 
 真实文件模式请在项目根目录运行 `python -m mask`，由本地服务加载 `mask/web/` 下的页面。它和本文用同一份核对界面，使用真实读取、HaS 识别、持久化、导出和还原；不显示模拟宿主对话。操作方式与已支持的文档结构见 [项目 README](../README.md)。下文的“原型范围”和历史浏览器核对记录仅指直接打开 HTML 的模拟模式。
 
@@ -86,7 +86,7 @@
 
 ## 与正式文档的关系
 
-产品流程和隐私边界以 [PRD](../PRD.md) 为准，宿主接入和实现方式以[技术方案](../docs/脱敏Agent功能与技术方案.md)为准。业务规则未改动。
+产品流程和隐私边界以 [PRD](../PRD.md) 为准，宿主接入和实现方式以[架构与模式](../docs/架构与模式.md)为准。业务规则未改动。
 
 ## 本轮核对
 
