@@ -1,0 +1,3 @@
+{
+  "install": "set -euo pipefail; [ -x \"$HOME/.venv/bin/python\" ] || uv venv \"$HOME/.venv\"; uv pip install --python \"$HOME/.venv/bin/python\" -r requirements-dev.txt; sed -i '/case \\$- in/,/esac/d' \"$HOME/.bashrc\" 2>/dev/null || true; grep -qxF 'export PATH=\"$HOME/.venv/bin:$PATH\"' \"$HOME/.bashrc\" || echo 'export PATH=\"$HOME/.venv/bin:$PATH\"' >> \"$HOME/.bashrc\"; mkdir -p vendor; ([ -f vendor/skills/has-anonymizer/_meta.json ] && grep -q '\"version\": \"1.0.3\"' vendor/skills/has-anonymizer/_meta.json) || npx --yes clawhub --no-input --workdir vendor --dir skills install has-anonymizer --version 1.0.3 --force"
+}
